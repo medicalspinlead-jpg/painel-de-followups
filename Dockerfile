@@ -12,7 +12,9 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml* ./
 COPY prisma ./prisma/
 
-RUN npm install --legacy-peer-deps --frozen-lockfile
+# Instala TODAS as dependencias (inclui devDependencies como `prisma`)
+# usando pnpm de forma consistente com o lockfile do projeto.
+RUN pnpm install --legacy-peer-deps --frozen-lockfile
 
 # ================= BUILDER =================
 FROM base AS builder
@@ -20,13 +22,15 @@ FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# 🔥 NECESSÁRIO PARA PRISMA DURANTE BUILD
+# 🔥 NECESSARIO PARA PRISMA DURANTE BUILD
 ENV DATABASE_URL="postgresql://followups:foloowupsmedicalspin2026@5.78.203.244:5433/followdb"
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npx prisma generate
-RUN npm run build
+# Usa o binario local do Prisma (resolve `prisma/config` do prisma.config.ts).
+# `npx prisma` baixava um Prisma avulso que NAO encontra `prisma/config`.
+RUN pnpm exec prisma generate
+RUN pnpm run build
 
 # ================= RUNNER =================
 FROM base AS runner
