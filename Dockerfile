@@ -14,7 +14,7 @@ COPY prisma ./prisma/
 
 # Instala TODAS as dependencias (inclui devDependencies como `prisma`)
 # usando pnpm de forma consistente com o lockfile do projeto.
-RUN pnpm install --legacy-peer-deps --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # ================= BUILDER =================
 FROM base AS builder
