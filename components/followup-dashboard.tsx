@@ -1,23 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Category,
   Lead,
   LeadStage,
   FollowupMessage,
   Settings,
-  defaultCategories,
-  defaultLeads,
-  defaultFollowupMessages,
   defaultSettings,
-  generateId,
   getStageColor,
   getStageLabel,
   MAX_MESSAGES_PER_CATEGORY,
-  getMessageCountByCategory,
-  canAddMessageToCategory,
-  getNextOrderForCategory,
 } from "@/lib/store"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -54,13 +47,31 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { useAuth } from "@/lib/auth-context"
 import { LogOut } from "lucide-react"
 
+// Helper para extrair JSON e lançar erro com a mensagem do backend
+async function parseResponse<T>(res: Response): Promise<T> {
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(json?.error || `Erro na requisição (${res.status})`)
+  }
+  return json.data as T
+}
+
 export function FollowupDashboard() {
   const { logout, changePassword } = useAuth()
-  const [categories, setCategories] = useState<Category[]>(defaultCategories)
-  const [leads, setLeads] = useState<Lead[]>(defaultLeads)
-  const [messages, setMessages] = useState<FollowupMessage[]>(defaultFollowupMessages)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [leads, setLeads] = useState<Lead[]>([])
+  const [messages, setMessages] = useState<FollowupMessage[]>([])
   const [settings, setSettings] = useState<Settings>(defaultSettings)
-  
+
+  // Loading / erro globais
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  // Settings save state
+  const [isSavingSettings, setIsSavingSettings] = useState(false)
+  const [settingsSaved, setSettingsSaved] = useState(false)
+
   // Dialog states
   const [isLeadDialogOpen, setIsLeadDialogOpen] = useState(false)
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
@@ -68,7 +79,7 @@ export function FollowupDashboard() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [isLeadDetailOpen, setIsLeadDetailOpen] = useState(false)
-  const [editingMessage, setEditingMessage] = useState<FollowUpMessage | null>(null)
+  const [editingMessage, setEditingMessage] = useState<FollowupMessage | null>(null)
   const [webhookTestStatus, setWebhookTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
 
   // Change password dialog state
@@ -76,21 +87,6 @@ export function FollowupDashboard() {
   const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" })
   const [passwordFeedback, setPasswordFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
-  const handleChangePassword = () => {
-    setPasswordFeedback(null)
-    if (passwordForm.next !== passwordForm.confirm) {
-      setPasswordFeedback({ type: "error", text: "A confirmacao nao corresponde a nova senha." })
-      return
-    }
-    const result = changePassword(passwordForm.current, passwordForm.next)
-    if (result.success) {
-      setPasswordFeedback({ type: "success", text: "Senha alterada com sucesso." })
-      setPasswordForm({ current: "", next: "", confirm: "" })
-    } else {
-      setPasswordFeedback({ type: "error", text: result.error || "Erro ao alterar senha." })
-    }
-  }
-  
   // Form states
   const [newLead, setNewLead] = useState<Partial<Lead>>({
     name: "",
@@ -108,22 +104,265 @@ export function FollowupDashboard() {
     active: true,
   })
 
-  // Lead functions
-  const addLead = () => {
-    if (!newLead.name || !newLead.categoryId) return
-    const lead: Lead = {
-      id: generateId(),
-      name: newLead.name,
-      email: newLead.email || "",
-      phone: newLead.phone || "",
-      categoryId: newLead.categoryId,
-      stage: newLead.stage || "dia1",
-      createdAt: new Date(),
-      notes: newLead.notes || "",
+  // Carrega todos os dados do banco ao montar
+  useEffect(() => {
+    let cancelled = false
+    async function loadData() {
+      setIsLoading(true)
+      setLoadError(null)
+      try {
+        const [cats, lds, msgs, sts] = await Promise.all([
+          fetch("/api/categories").then((r) => parseResponse<Category[]>(r)),
+          fetch("/api/leads").then((r) => parseResponse<Lead[]>(r)),
+          fetch("/api/messages").then((r) => parseResponse<FollowupMessage[]>(r)),
+          fetch("/api/settings").then((r) => parseResponse<Settings>(r)),
+        ])
+        if (cancelled) return
+        setCategories(cats)
+        setLeads(lds)
+        setMessages(msgs)
+        setSettings({ ...defaultSettings, ...sts })
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Erro ao carregar dados")
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
     }
-    setLeads([...leads, lead])
-    setNewLead({ name: "", email: "", phone: "", categoryId: "", stage: "dia1", notes: "" })
-    setIsLeadDialogOpen(false)
+    loadData()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleChangePassword = () => {
+    setPasswordFeedback(null)
+    if (passwordForm.next !== passwordForm.confirm) {
+      setPasswordFeedback({ type: "error", text: "A confirmacao nao corresponde a nova senha." })
+      return
+    }
+    const result = changePassword(passwordForm.current, passwordForm.next)
+    if (result.success) {
+      setPasswordFeedback({ type: "success", text: "Senha alterada com sucesso." })
+      setPasswordForm({ current: "", next: "", confirm: "" })
+    } else {
+      setPasswordFeedback({ type: "error", text: result.error || "Erro ao alterar senha." })
+    }
+  }
+
+  // Lead functions
+  const addLead = async () => {
+    if (!newLead.name || !newLead.categoryId) return
+    setActionError(null)
+    try {
+      const lead = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newLead.name,
+          email: newLead.email || "",
+          phone: newLead.phone || "",
+          categoryId: newLead.categoryId,
+          stage: newLead.stage || "dia1",
+          notes: newLead.notes || "",
+        }),
+      }).then((r) => parseResponse<Lead>(r))
+      setLeads((prev) => [lead, ...prev])
+      setNewLead({ name: "", email: "", phone: "", categoryId: "", stage: "dia1", notes: "" })
+      setIsLeadDialogOpen(false)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao adicionar lead")
+    }
+  }
+
+  const deleteLead = async (id: string) => {
+    setActionError(null)
+    try {
+      await fetch(`/api/leads/${id}`, { method: "DELETE" }).then((r) => parseResponse(r))
+      setLeads((prev) => prev.filter((l) => l.id !== id))
+      if (selectedLead?.id === id) {
+        setSelectedLead(null)
+        setIsLeadDetailOpen(false)
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao remover lead")
+    }
+  }
+
+  const openLeadDetail = (lead: Lead) => {
+    setSelectedLead(lead)
+    setIsLeadDetailOpen(true)
+  }
+
+  const updateLeadStage = async (id: string, stage: LeadStage) => {
+    setActionError(null)
+    // atualização otimista
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, stage } : l)))
+    try {
+      await fetch(`/api/leads/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage }),
+      }).then((r) => parseResponse<Lead>(r))
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao atualizar etapa")
+    }
+  }
+
+  // Category functions
+  const addCategory = async () => {
+    if (!newCategory.name) return
+    setActionError(null)
+    try {
+      const category = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCategory.name, color: newCategory.color, active: true }),
+      }).then((r) => parseResponse<Category>(r))
+      setCategories((prev) => [...prev, category])
+      setNewCategory({ name: "", color: "bg-blue-500" })
+      setIsCategoryDialogOpen(false)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao criar categoria")
+    }
+  }
+
+  const toggleCategory = async (id: string) => {
+    const current = categories.find((c) => c.id === id)
+    if (!current) return
+    setActionError(null)
+    const nextActive = !current.active
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, active: nextActive } : c)))
+    try {
+      await fetch(`/api/categories/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: nextActive }),
+      }).then((r) => parseResponse<Category>(r))
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao atualizar categoria")
+      // reverte
+      setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, active: current.active } : c)))
+    }
+  }
+
+  const deleteCategory = async (id: string) => {
+    setActionError(null)
+    try {
+      await fetch(`/api/categories/${id}`, { method: "DELETE" }).then((r) => parseResponse(r))
+      setCategories((prev) => prev.filter((c) => c.id !== id))
+      setMessages((prev) => prev.filter((m) => m.categoryId !== id))
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao remover categoria")
+    }
+  }
+
+  // Message functions
+  const openMessageDialog = (categoryId: string) => {
+    setSelectedCategoryId(categoryId)
+    setEditingMessage(null)
+    setNewMessage({ dayOffset: 1, time: settings.defaultFollowupTime || "09:00", message: "", active: true })
+    setIsMessageDialogOpen(true)
+  }
+
+  const openEditMessageDialog = (msg: FollowupMessage) => {
+    setSelectedCategoryId(msg.categoryId)
+    setEditingMessage(msg)
+    setNewMessage({ dayOffset: msg.dayOffset, time: msg.time, message: msg.message })
+    setIsMessageDialogOpen(true)
+  }
+
+  const saveMessage = async () => {
+    if (!selectedCategoryId || !newMessage.message?.trim()) return
+    setActionError(null)
+    try {
+      if (editingMessage) {
+        const updated = await fetch(`/api/messages/${editingMessage.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dayOffset: newMessage.dayOffset ?? 1,
+            time: newMessage.time ?? "09:00",
+            message: newMessage.message,
+          }),
+        }).then((r) => parseResponse<FollowupMessage>(r))
+        setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
+      } else {
+        const created = await fetch("/api/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            categoryId: selectedCategoryId,
+            dayOffset: newMessage.dayOffset ?? 1,
+            time: newMessage.time ?? "09:00",
+            message: newMessage.message,
+            active: true,
+          }),
+        }).then((r) => parseResponse<FollowupMessage>(r))
+        setMessages((prev) => [...prev, created])
+      }
+      setNewMessage({ dayOffset: 1, time: "09:00", message: "", active: true })
+      setIsMessageDialogOpen(false)
+      setEditingMessage(null)
+      setSelectedCategoryId(null)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao salvar mensagem")
+    }
+  }
+
+  const toggleMessage = async (id: string) => {
+    const current = messages.find((m) => m.id === id)
+    if (!current) return
+    setActionError(null)
+    const nextActive = !current.active
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, active: nextActive } : m)))
+    try {
+      await fetch(`/api/messages/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: nextActive }),
+      }).then((r) => parseResponse<FollowupMessage>(r))
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao atualizar mensagem")
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, active: current.active } : m)))
+    }
+  }
+
+  const deleteMessage = async (id: string) => {
+    setActionError(null)
+    try {
+      await fetch(`/api/messages/${id}`, { method: "DELETE" }).then((r) => parseResponse(r))
+      setMessages((prev) => prev.filter((m) => m.id !== id))
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao remover mensagem")
+    }
+  }
+
+  // Settings
+  const saveSettings = async () => {
+    setActionError(null)
+    setSettingsSaved(false)
+    setIsSavingSettings(true)
+    try {
+      const updated = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: settings.companyName,
+          defaultFollowupTime: settings.defaultFollowupTime,
+          sendWeekends: settings.sendWeekends,
+          webhookUrl: settings.webhookUrl,
+          webhookEnabled: settings.webhookEnabled,
+          ...(settings.webhookSecret ? { webhookSecret: settings.webhookSecret } : {}),
+        }),
+      }).then((r) => parseResponse<Settings>(r))
+      setSettings((prev) => ({ ...prev, ...updated }))
+      setSettingsSaved(true)
+      setTimeout(() => setSettingsSaved(false), 3000)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao salvar configurações")
+    } finally {
+      setIsSavingSettings(false)
+    }
   }
 
   // Webhook test function
@@ -152,114 +391,6 @@ export function FollowupDashboard() {
       setWebhookTestStatus("error")
     }
     setTimeout(() => setWebhookTestStatus("idle"), 4000)
-  }
-
-  const deleteLead = (id: string) => {
-    setLeads(leads.filter((l) => l.id !== id))
-    if (selectedLead?.id === id) {
-      setSelectedLead(null)
-      setIsLeadDetailOpen(false)
-    }
-  }
-
-  const openLeadDetail = (lead: Lead) => {
-    setSelectedLead(lead)
-    setIsLeadDetailOpen(true)
-  }
-
-  const updateLeadStage = (id: string, stage: LeadStage) => {
-    setLeads(leads.map((l) => (l.id === id ? { ...l, stage } : l)))
-  }
-
-  // Category functions
-  const addCategory = () => {
-    if (!newCategory.name) return
-    const category: Category = {
-      id: generateId(),
-      name: newCategory.name,
-      color: newCategory.color,
-      active: true,
-    }
-    setCategories([...categories, category])
-    setNewCategory({ name: "", color: "bg-blue-500" })
-    setIsCategoryDialogOpen(false)
-  }
-
-  const toggleCategory = (id: string) => {
-    setCategories(categories.map((c) => (c.id === id ? { ...c, active: !c.active } : c)))
-  }
-
-  const deleteCategory = (id: string) => {
-    setCategories(categories.filter((c) => c.id !== id))
-    setMessages(messages.filter((m) => m.categoryId !== id))
-  }
-
-  // Message functions
-  const openMessageDialog = (categoryId: string) => {
-    setSelectedCategoryId(categoryId)
-    setEditingMessage(null)
-    setNewMessage({ dayOffset: 1, time: settings.defaultTime, message: "" })
-    setIsMessageDialogOpen(true)
-  }
-
-  const openEditMessageDialog = (msg: FollowUpMessage) => {
-    setSelectedCategoryId(msg.categoryId)
-    setEditingMessage(msg)
-    setNewMessage({ dayOffset: msg.dayOffset, time: msg.time, message: msg.message })
-    setIsMessageDialogOpen(true)
-  }
-
-  const saveMessage = () => {
-    if (!selectedCategoryId || !newMessage.message.trim()) return
-    
-    if (editingMessage) {
-      // Update existing message
-      setMessages(messages.map(m => 
-        m.id === editingMessage.id 
-          ? { ...m, dayOffset: newMessage.dayOffset, time: newMessage.time, message: newMessage.message }
-          : m
-      ))
-    } else {
-      // Add new message
-      const message: FollowUpMessage = {
-        id: Date.now().toString(),
-        categoryId: selectedCategoryId,
-        dayOffset: newMessage.dayOffset,
-        time: newMessage.time,
-        message: newMessage.message,
-        active: true,
-      }
-      setMessages([...messages, message])
-    }
-    setIsMessageDialogOpen(false)
-    setEditingMessage(null)
-  }
-
-  const addMessage = () => {
-    if (!selectedCategoryId || !newMessage.message) return
-    if (!canAddMessageToCategory(messages, selectedCategoryId)) return
-    
-    const message: FollowupMessage = {
-      id: generateId(),
-      categoryId: selectedCategoryId,
-      order: getNextOrderForCategory(messages, selectedCategoryId),
-      dayOffset: newMessage.dayOffset || 1,
-      time: newMessage.time || "09:00",
-      message: newMessage.message,
-      active: true,
-    }
-    setMessages([...messages, message])
-    setNewMessage({ dayOffset: 1, time: "09:00", message: "", active: true })
-    setIsMessageDialogOpen(false)
-    setSelectedCategoryId(null)
-  }
-
-  const toggleMessage = (id: string) => {
-    setMessages(messages.map((m) => (m.id === id ? { ...m, active: !m.active } : m)))
-  }
-
-  const deleteMessage = (id: string) => {
-    setMessages(messages.filter((m) => m.id !== id))
   }
 
   const getCategoryName = (id: string) => {
@@ -308,6 +439,19 @@ export function FollowupDashboard() {
       </header>
 
       <main className="container mx-auto px-4 py-6">
+        {loadError && (
+          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Nao foi possivel carregar os dados do banco: {loadError}
+          </div>
+        )}
+        {actionError && (
+          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {actionError}
+          </div>
+        )}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-20 text-muted-foreground">Carregando dados...</div>
+        ) : (
         <Tabs defaultValue="leads" className="space-y-6">
           <TabsList className="bg-card border border-border">
             <TabsTrigger value="leads" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
@@ -800,11 +944,19 @@ export function FollowupDashboard() {
 
           {/* SETTINGS TAB */}
           <TabsContent value="settings" className="space-y-6">
-            <div>
-              <h2 className="text-lg font-medium">Configuracoes Gerais</h2>
-              <p className="text-sm text-muted-foreground">
-                Personalize o comportamento do sistema
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-medium">Configuracoes Gerais</h2>
+                <p className="text-sm text-muted-foreground">
+                  Personalize o comportamento do sistema
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                {settingsSaved && <span className="text-sm text-emerald-400">Salvo</span>}
+                <Button onClick={saveSettings} disabled={isSavingSettings}>
+                  {isSavingSettings ? "Salvando..." : "Salvar configuracoes"}
+                </Button>
+              </div>
             </div>
 
             <div className="grid gap-6 max-w-2xl">
@@ -1043,6 +1195,7 @@ export function FollowupDashboard() {
             </div>
           </TabsContent>
         </Tabs>
+        )}
       </main>
     </div>
   )
