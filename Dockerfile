@@ -21,7 +21,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # 🔥 NECESSÁRIO PARA PRISMA DURANTE BUILD
-ENV DATABASE_URL="postgresql://user:pass@localhost:5432/db"
+ENV DATABASE_URL="postgresql://followups:foloowupsmedicalspin2026@5.78.203.244:5433/followdb"
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
