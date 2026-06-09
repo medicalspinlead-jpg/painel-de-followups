@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum LeadStage {
+  desqualificado
+  dia1
+  dia2
+  dia3
+  aguarda_7_dias
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   @default("bg-blue-500")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages FollowupMessage[]
+  leads    Lead[]
+
+  @@map("categories")
+}
+
+model FollowupMessage {
+  id         String   @id @default(cuid())
+  categoryId String
+  order      Int // posicao 1-6 dentro da categoria
+  dayOffset  Int // dias apos o contato inicial
+  time       String // horario no formato HH:mm
+  message    String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+  @@map("followup_messages")
+}
+
+model Lead {
+  id         String     @id @default(cuid())
+  name       String
+  email      String     @default("")
+  phone      String     @default("")
+  categoryId String?
+  stage      LeadStage @default(dia1)
+  notes      String     @default("")
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([categoryId])
+  @@index([stage])
+  @@map("leads")
+}
+
+model Settings {
+  id                  String  @id @default("default")
+  companyName         String  @default("Minha Empresa")
+  defaultFollowupTime String  @default("09:00")
+  sendWeekends        Boolean @default(false)
+  webhookUrl          String  @default("")
+  webhookSecret       String  @default("")
+  webhookEnabled      Boolean @default(false)
+
+  @@map("settings")
+}

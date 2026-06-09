@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-followups}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-followups}
+      POSTGRES_DB: ${POSTGRES_DB:-followups}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-followups} -d ${POSTGRES_DB:-followups}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Aplica o schema e popula os dados iniciais antes de subir o app.
+  # Usa a imagem do builder (com o Prisma CLI disponível).
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-followups}:${POSTGRES_PASSWORD:-followups}@db:5432/${POSTGRES_DB:-followups}
+    command: sh -c "pnpm prisma db push && pnpm db:seed"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-followups}:${POSTGRES_PASSWORD:-followups}@db:5432/${POSTGRES_DB:-followups}
+      NODE_ENV: production
+      CRON_SECRET: ${CRON_SECRET:-}
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
