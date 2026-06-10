@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { decideFollowup, type ScheduleMessage } from "@/lib/followup-schedule"
+import { decideFollowup, nextDispatchForLead, type ScheduleMessage } from "@/lib/followup-schedule"
 
 /**
  * Helper: cria uma data correspondente a um horário de Brasília (UTC-3, sem DST atualmente).
@@ -173,4 +173,75 @@ test("respeita o fuso de Brasília na virada de dia (UTC vs BRT)", () => {
     messages: [msg({ dayOffset: 1, time: "23:00" })],
   })
   assert.equal(decision.send, true)
+})
+
+// --- nextDispatchForLead (usado pelo monitor de terminal) ---
+
+test("nextDispatchForLead aponta o instante exato +24h e a contagem regressiva", () => {
+  const createdAt = brazil("2026-06-08T08:00") // segunda 08:00
+  const now = brazil("2026-06-08T20:00") // segunda 20:00 -> faltam 12h
+  const next = nextDispatchForLead({
+    now,
+    createdAt,
+    stage: "dia1",
+    messages: [msg({ dayOffset: 1, time: "08:00" })],
+  })
+  assert.ok(next)
+  if (next) {
+    // O envio deve ser terça 08:00 Brasília == 11:00 UTC
+    assert.equal(next.at.toISOString(), "2026-06-09T11:00:00.000Z")
+    // Faltam exatamente 12h
+    assert.equal(next.msUntil, 12 * 60 * 60 * 1000)
+    assert.equal(next.targetDay, 1)
+  }
+})
+
+test("nextDispatchForLead calcula corretamente para dia2 (+48h)", () => {
+  const createdAt = brazil("2026-06-08T09:30")
+  const now = brazil("2026-06-09T09:30") // 1 dia depois; alvo do dia2 é +48h
+  const next = nextDispatchForLead({
+    now,
+    createdAt,
+    stage: "dia2",
+    messages: [msg({ dayOffset: 2, time: "09:30" })],
+  })
+  assert.ok(next)
+  if (next) {
+    // 2026-06-10 09:30 Brasília == 12:30 UTC
+    assert.equal(next.at.toISOString(), "2026-06-10T12:30:00.000Z")
+    assert.equal(next.msUntil, 24 * 60 * 60 * 1000) // faltam 24h
+  }
+})
+
+test("nextDispatchForLead retorna null para etapa não diária", () => {
+  const next = nextDispatchForLead({
+    now: brazil("2026-06-08T08:00"),
+    createdAt: brazil("2026-06-08T08:00"),
+    stage: "desqualificado",
+    messages: [msg()],
+  })
+  assert.equal(next, null)
+})
+
+test("nextDispatchForLead retorna null sem mensagem ativa para a etapa", () => {
+  const next = nextDispatchForLead({
+    now: brazil("2026-06-08T08:00"),
+    createdAt: brazil("2026-06-08T08:00"),
+    stage: "dia1",
+    messages: [msg({ dayOffset: 1, active: false })],
+  })
+  assert.equal(next, null)
+})
+
+test("msUntil fica negativo quando o horário já passou (lead atrasado)", () => {
+  const createdAt = brazil("2026-06-08T08:00")
+  const now = brazil("2026-06-09T10:00") // 2h depois do alvo (terça 08:00)
+  const next = nextDispatchForLead({
+    now,
+    createdAt,
+    stage: "dia1",
+    messages: [msg({ dayOffset: 1, time: "08:00" })],
+  })
+  assert.ok(next)
+  if (next) assert.ok(next.msUntil < 0)
 })

@@ -224,3 +224,28 @@ Os testes em `lib/followup-schedule.test.ts` cobrem:
 | Virada de dia no fuso de Brasília (UTC vs BRT) | **envia** no horário certo |
 
 Como o `dispatch` real (`/api/followups/dispatch`) usa a mesma função, um teste verde garante que o disparo por dias funciona em produção — basta o cron rodar a cada minuto.
+
+## Monitor de terminal (contagem regressiva)
+
+Para acompanhar **ao vivo** quanto falta até o próximo envio de cada lead:
+
+```bash
+npm run monitor
+```
+
+O monitor (`scripts/monitor.ts`) lê os leads ativos do banco e mostra, para cada um, o instante exato do próximo webhook (no horário de Brasília) e uma contagem regressiva (`dd hh:mm:ss`) que atualiza a cada segundo. Os dados do banco são relidos a cada 30s, então leads novos aparecem sozinhos. Requer `DATABASE_URL` no ambiente.
+
+Exemplo de saída:
+
+```
+========================================================================
+  MONITOR DE FOLLOW-UP  ·  agora: 09/06/2026 20:00 (Brasília)
+========================================================================
+
+  · João Silva  [dia1]  → Boas-vindas
+     próximo envio: 10/06/2026 08:00 (Brasília)
+     faltam:        12:00:00
+     mensagem:      "Olá! Tudo bem com você?"
+```
+
+O cálculo do próximo envio vive em `nextDispatchForLead` (mesma `lib/followup-schedule.ts`), também coberto pelos testes — ou seja, a contagem que você vê no terminal usa exatamente a regra do disparo real.

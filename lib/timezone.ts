@@ -55,6 +55,29 @@ export function getBrazilTimeParts(date: Date = new Date()): BrazilTimeParts {
   }
 }
 
+/**
+ * Converte uma "hora-parede" do fuso de Brasília (data YYYY-MM-DD + hora HH:mm)
+ * para o instante UTC correspondente. Robusto a horário de verão pois calcula
+ * o offset real do fuso para aquela data específica.
+ */
+export function brazilWallTimeToUtc(dateStr: string, timeStr: string): Date {
+  const [y, mo, d] = dateStr.split("-").map(Number)
+  const [h, mi] = timeStr.split(":").map(Number)
+
+  // 1ª tentativa: interpreta a hora-parede como se fosse UTC.
+  const utcGuess = Date.UTC(y, mo - 1, d, h, mi)
+
+  // Vê qual hora-parede esse instante produz no fuso de Brasília...
+  const parts = getBrazilTimeParts(new Date(utcGuess))
+  const [py, pmo, pd] = parts.date.split("-").map(Number)
+  const [ph, pmi] = parts.time.split(":").map(Number)
+  const tzWallAsUtc = Date.UTC(py, pmo - 1, pd, ph, pmi)
+
+  // ...a diferença é o offset do fuso; subtrai para obter o UTC real.
+  const offset = tzWallAsUtc - utcGuess
+  return new Date(utcGuess - offset)
+}
+
 /** Retorna um timestamp legível no horário de Brasília (ex.: 08/06/2026 08:00) */
 export function formatBrazilTimestamp(date: Date = new Date()): string {
   return new Intl.DateTimeFormat("pt-BR", {

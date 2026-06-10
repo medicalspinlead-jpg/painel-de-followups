@@ -1,4 +1,4 @@
-import { getBrazilTimeParts } from "@/lib/timezone"
+import { getBrazilTimeParts, brazilWallTimeToUtc } from "@/lib/timezone"
 
 // Mapeia cada etapa do lead ao número de dias (dayOffset) que a mensagem deve corresponder.
 // Leads em "desqualificado" ou "aguarda_7_dias" não recebem mensagens de sequência diária.
@@ -78,4 +78,45 @@ export function decideFollowup(input: ScheduleDecisionInput): ScheduleDecision {
   }
 
   return { send: true, message, targetDay, date: brazil.date, time: brazil.time }
+}
+
+export type NextDispatch = {
+  /** Instante UTC exato em que a mensagem deve ser enviada. */
+  at: Date
+  /** Milissegundos a partir de `now` até o envio (>= 0). */
+  msUntil: number
+  message: ScheduleMessage
+  targetDay: number
+}
+
+/**
+ * Calcula o próximo envio agendado para um lead (a partir de `now`),
+ * de forma pura. Usado pelo monitor de terminal para a contagem regressiva.
+ *
+ * Considera a mensagem ativa da etapa atual do lead (dia1=1, dia2=2, dia3=3).
+ * Se a hora-alvo de hoje já passou, retorna null (o lead já deveria ter sido
+ * processado pelo cron — não há próximo envio futuro nesta etapa).
+ */
+export function nextDispatchForLead(input: {
+  now: Date
+  createdAt: Date
+  stage: string
+  messages: ScheduleMessage[]
+}): NextDispatch | null {
+  const { now, createdAt, stage, messages } = input
+
+  const targetDay = STAGE_TO_DAY[stage]
+  if (targetDay === undefined) return null
+
+  const message = messages.find((m) => m.active && m.dayOffset === targetDay)
+  if (!message) return null
+
+  // Dia-alvo no fuso de Brasília = data de criação + N dias.
+  const targetDate = getBrazilTimeParts(new Date(createdAt.getTime() + targetDay * MS_PER_DAY)).date
+
+  // Instante UTC exato = hora-parede (targetDate + message.time) no fuso de Brasília.
+  const at = brazilWallTimeToUtc(targetDate, message.time)
+  const msUntil = at.getTime() - now.getTime()
+
+  return { at, msUntil, message, targetDay }
 }
