@@ -66,6 +66,7 @@ Cria uma mensagem. Retorna `409` se a categoria já tiver 6 mensagens.
 }
 ```
 - `categoryId` e `message` são obrigatórios. `order` assume o próximo disponível se omitido.
+- `dayOffset` deve ser um inteiro `>= 0`. Use **`0`** para disparar o webhook **imediatamente** quando um lead for criado na categoria (em vez de aguardar o cron diário).
 
 ### `GET /api/messages/[id]`
 Detalhes de uma mensagem.
@@ -84,7 +85,7 @@ Remove a mensagem.
 Lista leads (mais recentes primeiro) com a categoria embutida. Filtros opcionais: `stage` e `categoryId`.
 
 ### `POST /api/leads`
-Cria um lead.
+Cria um lead. Ao criar, se a categoria tiver mensagens ativas com `dayOffset = 0`, o webhook é disparado **imediatamente** para cada uma delas (a resposta inclui `dispatched`, a quantidade de eventos enviados).
 ```json
 {
   "name": "João Silva",
@@ -197,3 +198,29 @@ docker run -p 3000:3000 -e DATABASE_URL="postgresql://user:pass@host:5432/db" fo
 ```
 
 > O cron (`vercel.json`) só roda automaticamente na Vercel. Em ambiente Docker, agende uma chamada (cron do host ou serviço externo) para `POST /api/followups/dispatch` a cada minuto, enviando `Authorization: Bearer <CRON_SECRET>`.
+
+## Testes do agendamento (1 dia = 24h)
+
+Toda a regra de "quando enviar" vive em `lib/followup-schedule.ts` (`decideFollowup`), uma função **pura** que recebe o instante `now` como parâmetro. Isso permite simular a passagem do tempo (24h, 48h, 72h) sem esperar de verdade nem depender do banco.
+
+```bash
+npm test
+```
+
+Os testes em `lib/followup-schedule.test.ts` cobrem:
+
+| Cenário | Resultado esperado |
+|---------|--------------------|
+| Lead `dia1`, exatamente +24h, horário certo | **envia** |
+| Lead `dia1`, ainda no mesmo dia (0h) | não envia |
+| Lead `dia1`, +24h porém horário errado | não envia |
+| Lead `dia1`, +48h (ainda na etapa 1) | não envia |
+| Lead `dia2`, +48h | **envia** |
+| Lead `dia3`, +72h | **envia** |
+| Sábado/domingo com `sendWeekends=false` | não envia |
+| Sábado com `sendWeekends=true` | **envia** |
+| Mensagem inativa | não envia |
+| Etapa não diária (ex.: `desqualificado`) | não envia |
+| Virada de dia no fuso de Brasília (UTC vs BRT) | **envia** no horário certo |
+
+Como o `dispatch` real (`/api/followups/dispatch`) usa a mesma função, um teste verde garante que o disparo por dias funciona em produção — basta o cron rodar a cada minuto.

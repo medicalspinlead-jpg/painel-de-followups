@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getBrazilTimeParts } from "@/lib/timezone"
+import { decideFollowup, DAILY_STAGES } from "@/lib/followup-schedule"
 
 const SETTINGS_ID = "default"
-
-// Mapeia cada etapa do lead ao número de dias (dayOffset) que a mensagem deve corresponder.
-// Leads em "desqualificado" ou "aguarda_7_dias" não recebem mensagens de sequência diária.
-const STAGE_TO_DAY: Record<string, number> = {
-  dia1: 1,
-  dia2: 2,
-  dia3: 3,
-}
 
 type WebhookEvent = {
   event: "followup.scheduled"
@@ -50,10 +43,9 @@ async function dispatchFollowups(request: NextRequest) {
     const now = new Date()
     // Componentes de data/hora no horário de Brasília (independente do TZ do servidor)
     const brazil = getBrazilTimeParts(now)
-    const day = brazil.weekday // 0 = domingo, 6 = sábado
 
     // Pula finais de semana se a configuração não permitir
-    if (!settings.sendWeekends && (day === 0 || day === 6)) {
+    if (!settings.sendWeekends && (brazil.weekday === 0 || brazil.weekday === 6)) {
       return NextResponse.json({ message: "Finais de semana desabilitados", dispatched: 0 })
     }
 
@@ -62,27 +54,33 @@ async function dispatchFollowups(request: NextRequest) {
 
     // Busca leads que estão em uma etapa diária ativa, com sua categoria e mensagens
     const leads = await prisma.lead.findMany({
-      where: { stage: { in: ["dia1", "dia2", "dia3"] }, categoryId: { not: null } },
+      where: { stage: { in: DAILY_STAGES }, categoryId: { not: null } },
       include: { category: { include: { messages: { where: { active: true } } } } },
     })
 
     const events: WebhookEvent[] = []
     for (const lead of leads) {
       if (!lead.category || !lead.category.active) continue
-      const targetDay = STAGE_TO_DAY[lead.stage]
 
-      // A data alvo é a data de cadastro do lead + dayOffset dias, no horário de Brasília.
-      // Garante que cada mensagem seja enviada apenas no dia correto, e não todos os dias.
-      const targetDate = getBrazilTimeParts(
-        new Date(lead.createdAt.getTime() + targetDay * 24 * 60 * 60 * 1000),
-      ).date
+      // Toda a lógica de tempo/data vive em decideFollowup (função pura testável)
+      const decision = decideFollowup({
+        now,
+        createdAt: lead.createdAt,
+        stage: lead.stage,
+        sendWeekends: settings.sendWeekends,
+        messages: lead.category.messages.map((m) => ({
+          id: m.id,
+          order: m.order,
+          dayOffset: m.dayOffset,
+          time: m.time,
+          content: m.message,
+          active: m.active,
+        })),
+      })
 
-      if (targetDate !== todayBrazil) continue
+      if (!decision.send) continue
+      const { message } = decision
 
-      const message = lead.category.messages.find(
-        (m) => m.dayOffset === targetDay && m.time === currentTime,
-      )
-      if (!message) continue
       events.push({
         event: "followup.scheduled",
         timestamp: brazil.iso,
@@ -93,7 +91,7 @@ async function dispatchFollowups(request: NextRequest) {
           order: message.order,
           dayOffset: message.dayOffset,
           time: message.time,
-          content: message.message,
+          content: message.content,
         },
       })
     }

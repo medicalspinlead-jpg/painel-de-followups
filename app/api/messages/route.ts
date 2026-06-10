@@ -41,11 +41,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Aceita dayOffset = 0 (envio imediato na criação do lead). Valores negativos são inválidos.
+    const dayOffset = body.dayOffset ?? 1
+    if (typeof dayOffset !== "number" || !Number.isInteger(dayOffset) || dayOffset < 0) {
+      return NextResponse.json(
+        { error: "O campo 'dayOffset' deve ser um inteiro maior ou igual a 0" },
+        { status: 400 },
+      )
+    }
+
     const message = await prisma.followupMessage.create({
       data: {
         categoryId: body.categoryId,
         order: body.order ?? count + 1,
-        dayOffset: body.dayOffset ?? 1,
+        dayOffset,
         time: body.time ?? "09:00",
         message: body.message,
         active: body.active ?? true,

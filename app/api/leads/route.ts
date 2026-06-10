@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { dispatchImmediateFollowups } from "@/lib/webhook"
 
 const VALID_STAGES = ["desqualificado", "dia1", "dia2", "dia3", "aguarda_7_dias"]
 
@@ -48,7 +49,19 @@ export async function POST(request: NextRequest) {
         notes: body.notes ?? "",
       },
     })
-    return NextResponse.json({ data: lead }, { status: 201 })
+
+    // Dispara imediatamente o webhook para mensagens com dayOffset = 0 (envio imediato)
+    let dispatched = 0
+    if (lead.categoryId) {
+      try {
+        dispatched = await dispatchImmediateFollowups(lead.id)
+      } catch (err) {
+        // Não falha a criação do lead caso o envio do webhook falhe
+        console.log("[v0] Falha ao disparar webhook imediato:", String(err))
+      }
+    }
+
+    return NextResponse.json({ data: lead, dispatched }, { status: 201 })
   } catch (error) {
     return NextResponse.json(
       { error: "Erro ao criar lead", details: String(error) },

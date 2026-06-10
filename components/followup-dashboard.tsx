@@ -702,7 +702,7 @@ export function FollowupDashboard() {
                                 <span className="flex items-center justify-center h-5 w-5 rounded-full bg-primary/20 text-primary text-xs font-medium">
                                   {idx + 1}
                                 </span>
-                                <span className="text-muted-foreground">Dia {msg.dayOffset} as {msg.time}</span>
+                                <span className="text-muted-foreground">{msg.dayOffset === 0 ? `Imediato as ${msg.time}` : `Dia ${msg.dayOffset} as ${msg.time}`}</span>
                               </div>
                             ))
                         ) : (
@@ -832,7 +832,7 @@ export function FollowupDashboard() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                                    <span>{msg.dayOffset} dia{msg.dayOffset > 1 ? "s" : ""} apos contato</span>
+                                    <span>{msg.dayOffset === 0 ? "Imediato (ao criar lead)" : `${msg.dayOffset} dia${msg.dayOffset > 1 ? "s" : ""} apos contato`}</span>
                                     <span>-</span>
                                     <span>{msg.time}</span>
                                   </div>
@@ -902,11 +902,20 @@ export function FollowupDashboard() {
                       <Input
                         id="dayOffset"
                         type="number"
-                        min="1"
+                        min="0"
                         value={newMessage.dayOffset}
-                        onChange={(e) => setNewMessage({ ...newMessage, dayOffset: parseInt(e.target.value) || 1 })}
+                        onChange={(e) => {
+                          const parsed = parseInt(e.target.value, 10)
+                          setNewMessage({
+                            ...newMessage,
+                            dayOffset: Number.isNaN(parsed) ? 0 : Math.max(0, parsed),
+                          })
+                        }}
                         className="bg-input border-border"
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Use 0 para disparar o webhook imediatamente ao criar o lead.
+                      </p>
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor="time">Horario</Label>
