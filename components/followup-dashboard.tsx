@@ -81,6 +81,8 @@ export function FollowupDashboard() {
   const [isLeadDetailOpen, setIsLeadDetailOpen] = useState(false)
   const [editingMessage, setEditingMessage] = useState<FollowupMessage | null>(null)
   const [webhookTestStatus, setWebhookTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
+  // Número de telefone de teste (apenas em memória, não persistido no banco)
+  const [testPhone, setTestPhone] = useState("")
 
   // Change password dialog state
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false)
@@ -373,7 +375,13 @@ export function FollowupDashboard() {
       event: "followup.scheduled",
       timestamp: new Date().toISOString(),
       test: true,
-      lead: { id: "test", name: "Lead de Teste", email: "teste@exemplo.com", phone: "(11) 99999-9999", stage: "dia1" },
+      lead: {
+        id: "test",
+        name: "Lead de Teste",
+        email: "teste@exemplo.com",
+        phone: testPhone.trim() || "(11) 99999-9999",
+        stage: "dia1",
+      },
       category: { id: "test", name: "Categoria de Teste" },
       message: { id: "test", order: 1, dayOffset: 1, time: settings.defaultFollowupTime, content: "Mensagem de teste do webhook" },
     }
@@ -1066,6 +1074,21 @@ export function FollowupDashboard() {
                     />
                     <p className="text-xs text-muted-foreground">
                       Enviado no cabecalho <code className="text-foreground">X-Webhook-Secret</code> de cada requisicao.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="testPhone">Telefone de teste</Label>
+                    <Input
+                      id="testPhone"
+                      type="tel"
+                      placeholder="(11) 99999-9999"
+                      value={testPhone}
+                      onChange={(e) => setTestPhone(e.target.value)}
+                      className="bg-input border-border"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Usado apenas no evento de teste abaixo. Nao e salvo no banco de dados.
                     </p>
                   </div>
 
