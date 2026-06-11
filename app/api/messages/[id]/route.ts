@@ -23,6 +23,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const { id } = await params
     const body = await request.json()
+
+    // Estado anterior para detectar mudança no agendamento.
+    const previous = await prisma.followupMessage.findUnique({ where: { id } })
+
     const message = await prisma.followupMessage.update({
       where: { id },
       data: {
@@ -33,6 +37,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         ...(body.active !== undefined && { active: body.active }),
       },
     })
+
+    // Se o horário ou o dia mudou, a mensagem deve poder disparar novamente no
+    // novo agendamento. Os FollowupLogs antigos (idempotência) impediriam isso,
+    // então os removemos para "rearmar" o envio desta mensagem.
+    const timeChanged = body.time !== undefined && previous && body.time !== previous.time
+    const dayChanged = body.dayOffset !== undefined && previous && body.dayOffset !== previous.dayOffset
+    if (timeChanged || dayChanged) {
+      await prisma.followupLog.deleteMany({ where: { messageId: id } })
+    }
+
     return NextResponse.json({ data: message })
   } catch (error) {
     return NextResponse.json(

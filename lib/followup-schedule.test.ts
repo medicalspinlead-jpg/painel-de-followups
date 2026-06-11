@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { decideFollowup, nextDispatchForLead, type ScheduleMessage } from "@/lib/followup-schedule"
+import { decideFollowup, dueFollowups, nextDispatchForLead, type ScheduleMessage } from "@/lib/followup-schedule"
 
 /**
  * Helper: cria uma data correspondente a um horário de Brasília (UTC-3, sem DST atualmente).
@@ -53,9 +53,24 @@ test("NÃO envia antes de completar 24h (mesmo dia)", () => {
   assert.equal(decision.send, false)
 })
 
-test("NÃO envia no horário errado (mesma data alvo, hora diferente)", () => {
+test("ENVIA mesmo atrasado no mesmo dia-alvo (janela: hora-alvo já passou)", () => {
+  // Modelo de janela: às 09:00 a mensagem das 08:00 ainda deve ser enviada
+  // (atrasada). Isso corrige o bug em que o cron, ao atrasar 1 min, perdia o envio.
   const createdAt = brazil("2026-06-08T08:00")
-  const now = brazil("2026-06-09T09:00") // +24h porém 09:00 != 08:00
+  const now = brazil("2026-06-09T09:00") // +24h, 1h após o horário-alvo
+  const decision = decideFollowup({
+    now,
+    createdAt,
+    stage: "dia1",
+    sendWeekends: false,
+    messages: [msg({ dayOffset: 1, time: "08:00" })],
+  })
+  assert.equal(decision.send, true)
+})
+
+test("NÃO envia antes da hora-alvo no dia-alvo (08:00 ainda não chegou)", () => {
+  const createdAt = brazil("2026-06-08T08:00")
+  const now = brazil("2026-06-09T07:00") // +24h porém 07:00 < 08:00
   const decision = decideFollowup({
     now,
     createdAt,
@@ -244,4 +259,64 @@ test("msUntil fica negativo quando o horário já passou (lead atrasado)", () =>
   })
   assert.ok(next)
   if (next) assert.ok(next.msUntil < 0)
+})
+
+// --- dueFollowups (usado pelo dispatch idempotente) ---
+
+test("dueFollowups retorna todas as mensagens cujo horário já passou no dia-alvo", () => {
+  const createdAt = brazil("2026-06-08T08:00")
+  const now = brazil("2026-06-09T12:00") // dia-alvo; 12:00
+  const due = dueFollowups({
+    now,
+    createdAt,
+    stage: "dia1",
+    sendWeekends: false,
+    messages: [
+      msg({ id: "a", dayOffset: 1, time: "08:00" }), // já passou
+      msg({ id: "b", dayOffset: 1, time: "11:00" }), // já passou
+      msg({ id: "c", dayOffset: 1, time: "18:00" }), // ainda não
+    ],
+  })
+  assert.equal(due.targetDate, "2026-06-09")
+  const ids = due.messages.map((m) => m.id).sort()
+  assert.deepEqual(ids, ["a", "b"])
+})
+
+test("dueFollowups vazio quando nenhuma hora-alvo chegou ainda", () => {
+  const createdAt = brazil("2026-06-08T08:00")
+  const now = brazil("2026-06-09T07:00")
+  const due = dueFollowups({
+    now,
+    createdAt,
+    stage: "dia1",
+    sendWeekends: false,
+    messages: [msg({ dayOffset: 1, time: "08:00" })],
+  })
+  assert.equal(due.messages.length, 0)
+})
+
+test("dueFollowups vazio fora do dia-alvo", () => {
+  const createdAt = brazil("2026-06-08T08:00")
+  const now = brazil("2026-06-10T12:00") // +48h, etapa dia1 (alvo +24h)
+  const due = dueFollowups({
+    now,
+    createdAt,
+    stage: "dia1",
+    sendWeekends: false,
+    messages: [msg({ dayOffset: 1, time: "08:00" })],
+  })
+  assert.equal(due.messages.length, 0)
+})
+
+test("dueFollowups respeita finais de semana desabilitados", () => {
+  const createdAt = brazil("2026-06-12T08:00") // sexta
+  const now = brazil("2026-06-13T12:00") // sábado
+  const due = dueFollowups({
+    now,
+    createdAt,
+    stage: "dia1",
+    sendWeekends: false,
+    messages: [msg({ dayOffset: 1, time: "08:00" })],
+  })
+  assert.equal(due.messages.length, 0)
 })

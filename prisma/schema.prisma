@@ -57,10 +57,30 @@ model Lead {
   updatedAt  DateTime   @updatedAt
 
   category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  logs     FollowupLog[]
 
   @@index([categoryId])
   @@index([stage])
   @@map("leads")
+}
+
+// Registro de cada follow-up efetivamente enviado ao webhook.
+// Garante idempotência: um mesmo (lead, mensagem, data-alvo) nunca é enviado
+// duas vezes, mesmo que o cron/agendador rode várias vezes no mesmo dia.
+model FollowupLog {
+  id         String   @id @default(cuid())
+  leadId     String
+  messageId  String
+  targetDate String // data-alvo no formato YYYY-MM-DD (horário de Brasília)
+  scheduled  String // horário agendado HH:mm da mensagem
+  status     String   @default("delivered") // delivered | failed
+  sentAt     DateTime @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, messageId, targetDate])
+  @@index([leadId])
+  @@map("followup_logs")
 }
 
 model Settings {

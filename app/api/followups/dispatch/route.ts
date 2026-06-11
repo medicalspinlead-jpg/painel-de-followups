@@ -1,29 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
-import { getBrazilTimeParts } from "@/lib/timezone"
-import { decideFollowup, DAILY_STAGES } from "@/lib/followup-schedule"
-
-const SETTINGS_ID = "default"
-
-type WebhookEvent = {
-  event: "followup.scheduled"
-  timestamp: string
-  lead: { id: string; name: string; email: string; phone: string; stage: string }
-  category: { id: string; name: string }
-  message: { id: string; order: number; dayOffset: number; time: string; content: string }
-}
+import { runDispatch } from "@/lib/dispatch"
 
 /**
- * POST /api/followups/dispatch
+ * POST/GET /api/followups/dispatch
  *
- * Verifica quais follow-ups estão na data/horário corretos e envia os eventos
- * ao webhook configurado. Projetado para ser acionado por um cron job (ex.: Vercel Cron).
+ * Verifica quais follow-ups já são devidos (modelo de janela, idempotente) e
+ * envia os eventos ao webhook configurado. Pode ser acionado por:
+ *  - cron externo / Vercel Cron;
+ *  - o agendador interno do servidor (instrumentation.ts) — em self-host;
+ *  - acionamento manual.
  *
  * Protegido por CRON_SECRET: envie o header `Authorization: Bearer <CRON_SECRET>`.
  */
 async function dispatchFollowups(request: NextRequest) {
   try {
-    // Validação do segredo do cron (se configurado)
     const cronSecret = process.env.CRON_SECRET
     if (cronSecret) {
       const auth = request.headers.get("authorization")
@@ -32,99 +22,8 @@ async function dispatchFollowups(request: NextRequest) {
       }
     }
 
-    const settings = await prisma.settings.findUnique({ where: { id: SETTINGS_ID } })
-    if (!settings || !settings.webhookEnabled || !settings.webhookUrl) {
-      return NextResponse.json(
-        { error: "Webhook não está habilitado ou configurado", dispatched: 0 },
-        { status: 200 },
-      )
-    }
-
-    const now = new Date()
-    // Componentes de data/hora no horário de Brasília (independente do TZ do servidor)
-    const brazil = getBrazilTimeParts(now)
-
-    // Pula finais de semana se a configuração não permitir
-    if (!settings.sendWeekends && (brazil.weekday === 0 || brazil.weekday === 6)) {
-      return NextResponse.json({ message: "Finais de semana desabilitados", dispatched: 0 })
-    }
-
-    const currentTime = brazil.time // HH:mm no horário de Brasília
-    const todayBrazil = brazil.date // YYYY-MM-DD no horário de Brasília
-
-    // Busca leads que estão em uma etapa diária ativa, com sua categoria e mensagens
-    const leads = await prisma.lead.findMany({
-      where: { stage: { in: DAILY_STAGES }, categoryId: { not: null } },
-      include: { category: { include: { messages: { where: { active: true } } } } },
-    })
-
-    const events: WebhookEvent[] = []
-    for (const lead of leads) {
-      if (!lead.category || !lead.category.active) continue
-
-      // Toda a lógica de tempo/data vive em decideFollowup (função pura testável)
-      const decision = decideFollowup({
-        now,
-        createdAt: lead.createdAt,
-        stage: lead.stage,
-        sendWeekends: settings.sendWeekends,
-        messages: lead.category.messages.map((m) => ({
-          id: m.id,
-          order: m.order,
-          dayOffset: m.dayOffset,
-          time: m.time,
-          content: m.message,
-          active: m.active,
-        })),
-      })
-
-      if (!decision.send) continue
-      const { message } = decision
-
-      events.push({
-        event: "followup.scheduled",
-        timestamp: brazil.iso,
-        lead: { id: lead.id, name: lead.name, email: lead.email, phone: lead.phone, stage: lead.stage },
-        category: { id: lead.category.id, name: lead.category.name },
-        message: {
-          id: message.id,
-          order: message.order,
-          dayOffset: message.dayOffset,
-          time: message.time,
-          content: message.content,
-        },
-      })
-    }
-
-    // Envia cada evento ao webhook
-    let delivered = 0
-    const failures: string[] = []
-    for (const event of events) {
-      try {
-        const res = await fetch(settings.webhookUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(settings.webhookSecret ? { "X-Webhook-Secret": settings.webhookSecret } : {}),
-          },
-          body: JSON.stringify(event),
-        })
-        if (res.ok) delivered++
-        else failures.push(`${event.lead.id}: HTTP ${res.status}`)
-      } catch (err) {
-        failures.push(`${event.lead.id}: ${String(err)}`)
-      }
-    }
-
-    return NextResponse.json({
-      checkedLeads: leads.length,
-      matched: events.length,
-      dispatched: delivered,
-      failures,
-      date: todayBrazil,
-      time: currentTime,
-      timezone: "America/Sao_Paulo",
-    })
+    const result = await runDispatch()
+    return NextResponse.json(result)
   } catch (error) {
     return NextResponse.json(
       { error: "Erro ao processar follow-ups", details: String(error) },
@@ -133,7 +32,6 @@ async function dispatchFollowups(request: NextRequest) {
   }
 }
 
-// GET é usado pelo Vercel Cron; POST permite acionamento manual.
 export async function GET(request: NextRequest) {
   return dispatchFollowups(request)
 }
