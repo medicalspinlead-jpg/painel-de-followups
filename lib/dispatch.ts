@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import type { LeadStage } from "@prisma/client"
 import { getBrazilTimeParts } from "@/lib/timezone"
 import { dueFollowups, DAILY_STAGES, nextStageAfter } from "@/lib/followup-schedule"
 import { sendWebhookEvent, type WebhookEvent } from "@/lib/webhook"
@@ -84,7 +85,7 @@ export async function runDispatch(): Promise<DispatchResult> {
   }
 
   const leads = await prisma.lead.findMany({
-    where: { stage: { in: DAILY_STAGES }, categoryId: { not: null } },
+    where: { stage: { in: DAILY_STAGES as LeadStage[] }, categoryId: { not: null } },
     include: { category: { include: { messages: { where: { active: true } } } } },
   })
   base.checkedLeads = leads.length

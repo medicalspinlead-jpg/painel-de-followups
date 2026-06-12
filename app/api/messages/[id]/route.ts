@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireApiKey } from "@/lib/api-auth"
 
 // GET /api/messages/[id] - detalhes de uma mensagem
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const { id } = await params
     const message = await prisma.followupMessage.findUnique({ where: { id } })
@@ -20,6 +23,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
 // PATCH /api/messages/[id] - atualiza uma mensagem
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const { id } = await params
     const body = await request.json()
@@ -57,7 +62,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 // DELETE /api/messages/[id] - remove uma mensagem
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const { id } = await params
     await prisma.followupMessage.delete({ where: { id } })

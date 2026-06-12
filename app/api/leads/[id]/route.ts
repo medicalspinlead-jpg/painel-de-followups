@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireApiKey } from "@/lib/api-auth"
 
 const VALID_STAGES = ["desqualificado", "dia1", "dia2", "dia3", "aguarda_7_dias"]
 
 // GET /api/leads/[id] - detalhes de um lead
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const { id } = await params
     const lead = await prisma.lead.findUnique({
@@ -25,6 +28,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
 // PATCH /api/leads/[id] - atualiza um lead (incluindo mudança de etapa)
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const { id } = await params
     const body = await request.json()
@@ -55,7 +60,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 // DELETE /api/leads/[id] - remove um lead
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const { id } = await params
     await prisma.lead.delete({ where: { id } })

@@ -9,6 +9,7 @@
  * Requer DATABASE_URL no ambiente (mesma do app).
  */
 import { prisma } from "@/lib/prisma"
+import type { LeadStage } from "@prisma/client"
 import { nextDispatchForLead, DAILY_STAGES, type ScheduleMessage } from "@/lib/followup-schedule"
 import { formatBrazilTimestamp } from "@/lib/timezone"
 
@@ -28,7 +29,7 @@ type Row = {
 async function loadRows(): Promise<Row[]> {
   const now = new Date()
   const leads = await prisma.lead.findMany({
-    where: { stage: { in: DAILY_STAGES }, categoryId: { not: null } },
+    where: { stage: { in: DAILY_STAGES as LeadStage[] }, categoryId: { not: null } },
     include: { category: { include: { messages: { where: { active: true } } } } },
   })
 

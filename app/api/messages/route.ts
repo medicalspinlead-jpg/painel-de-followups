@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireApiKey } from "@/lib/api-auth"
 
 const MAX_MESSAGES_PER_CATEGORY = 6
 
 // GET /api/messages?categoryId=xxx - lista mensagens (opcionalmente filtradas por categoria)
 export async function GET(request: NextRequest) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const categoryId = request.nextUrl.searchParams.get("categoryId")
     const messages = await prisma.followupMessage.findMany({
@@ -22,6 +25,8 @@ export async function GET(request: NextRequest) {
 
 // POST /api/messages - cria uma mensagem de follow-up (máx. 6 por categoria)
 export async function POST(request: NextRequest) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const body = await request.json()
     if (!body.categoryId || !body.message) {

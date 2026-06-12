@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { runDispatch } from "@/lib/dispatch"
+import { getServerApiKey } from "@/lib/api-key"
 
 /**
  * POST/GET /api/followups/dispatch
@@ -10,16 +11,26 @@ import { runDispatch } from "@/lib/dispatch"
  *  - o agendador interno do servidor (instrumentation.ts) — em self-host;
  *  - acionamento manual.
  *
- * Protegido por CRON_SECRET: envie o header `Authorization: Bearer <CRON_SECRET>`.
+ * Autenticação por Bearer token: aceita tanto a `API_KEY` da aplicação quanto,
+ * se configurado, o `CRON_SECRET` (para crons externos).
+ * Envie o header `Authorization: Bearer <token>`.
  */
 async function dispatchFollowups(request: NextRequest) {
   try {
-    const cronSecret = process.env.CRON_SECRET
-    if (cronSecret) {
-      const auth = request.headers.get("authorization")
-      if (auth !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
-      }
+    const header = request.headers.get("authorization") || ""
+    const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : ""
+
+    const validTokens = [getServerApiKey()]
+    if (process.env.CRON_SECRET) validTokens.push(process.env.CRON_SECRET)
+
+    if (!token || !validTokens.includes(token)) {
+      return NextResponse.json(
+        {
+          error: "Não autorizado",
+          details: "Envie o header 'Authorization: Bearer <API_KEY>' (ou CRON_SECRET).",
+        },
+        { status: 401 },
+      )
     }
 
     const result = await runDispatch()

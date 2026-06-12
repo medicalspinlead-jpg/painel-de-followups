@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useState } from "react"
 import {
   Category,
@@ -12,9 +13,10 @@ import {
   getStageLabel,
   MAX_MESSAGES_PER_CATEGORY,
 } from "@/lib/store"
+import { apiFetch } from "@/lib/api-client"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -45,7 +47,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useAuth } from "@/lib/auth-context"
-import { LogOut } from "lucide-react"
+import { LogOut, BookText } from "lucide-react"
 
 // Helper para extrair JSON e lançar erro com a mensagem do backend
 async function parseResponse<T>(res: Response): Promise<T> {
@@ -114,10 +116,10 @@ export function FollowupDashboard() {
       setLoadError(null)
       try {
         const [cats, lds, msgs, sts] = await Promise.all([
-          fetch("/api/categories").then((r) => parseResponse<Category[]>(r)),
-          fetch("/api/leads").then((r) => parseResponse<Lead[]>(r)),
-          fetch("/api/messages").then((r) => parseResponse<FollowupMessage[]>(r)),
-          fetch("/api/settings").then((r) => parseResponse<Settings>(r)),
+          apiFetch("/api/categories").then((r) => parseResponse<Category[]>(r)),
+          apiFetch("/api/leads").then((r) => parseResponse<Lead[]>(r)),
+          apiFetch("/api/messages").then((r) => parseResponse<FollowupMessage[]>(r)),
+          apiFetch("/api/settings").then((r) => parseResponse<Settings>(r)),
         ])
         if (cancelled) return
         setCategories(cats)
@@ -156,7 +158,7 @@ export function FollowupDashboard() {
     if (!newLead.name || !newLead.categoryId) return
     setActionError(null)
     try {
-      const lead = await fetch("/api/leads", {
+      const lead = await apiFetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -179,7 +181,7 @@ export function FollowupDashboard() {
   const deleteLead = async (id: string) => {
     setActionError(null)
     try {
-      await fetch(`/api/leads/${id}`, { method: "DELETE" }).then((r) => parseResponse(r))
+      await apiFetch(`/api/leads/${id}`, { method: "DELETE" }).then((r) => parseResponse(r))
       setLeads((prev) => prev.filter((l) => l.id !== id))
       if (selectedLead?.id === id) {
         setSelectedLead(null)
@@ -200,7 +202,7 @@ export function FollowupDashboard() {
     // atualização otimista
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, stage } : l)))
     try {
-      await fetch(`/api/leads/${id}`, {
+      await apiFetch(`/api/leads/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stage }),
@@ -215,7 +217,7 @@ export function FollowupDashboard() {
     if (!newCategory.name) return
     setActionError(null)
     try {
-      const category = await fetch("/api/categories", {
+      const category = await apiFetch("/api/categories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newCategory.name, color: newCategory.color, active: true }),
@@ -235,7 +237,7 @@ export function FollowupDashboard() {
     const nextActive = !current.active
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, active: nextActive } : c)))
     try {
-      await fetch(`/api/categories/${id}`, {
+      await apiFetch(`/api/categories/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: nextActive }),
@@ -250,7 +252,7 @@ export function FollowupDashboard() {
   const deleteCategory = async (id: string) => {
     setActionError(null)
     try {
-      await fetch(`/api/categories/${id}`, { method: "DELETE" }).then((r) => parseResponse(r))
+      await apiFetch(`/api/categories/${id}`, { method: "DELETE" }).then((r) => parseResponse(r))
       setCategories((prev) => prev.filter((c) => c.id !== id))
       setMessages((prev) => prev.filter((m) => m.categoryId !== id))
     } catch (err) {
@@ -278,7 +280,7 @@ export function FollowupDashboard() {
     setActionError(null)
     try {
       if (editingMessage) {
-        const updated = await fetch(`/api/messages/${editingMessage.id}`, {
+        const updated = await apiFetch(`/api/messages/${editingMessage.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -289,7 +291,7 @@ export function FollowupDashboard() {
         }).then((r) => parseResponse<FollowupMessage>(r))
         setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
       } else {
-        const created = await fetch("/api/messages", {
+        const created = await apiFetch("/api/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -318,7 +320,7 @@ export function FollowupDashboard() {
     const nextActive = !current.active
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, active: nextActive } : m)))
     try {
-      await fetch(`/api/messages/${id}`, {
+      await apiFetch(`/api/messages/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: nextActive }),
@@ -332,7 +334,7 @@ export function FollowupDashboard() {
   const deleteMessage = async (id: string) => {
     setActionError(null)
     try {
-      await fetch(`/api/messages/${id}`, { method: "DELETE" }).then((r) => parseResponse(r))
+      await apiFetch(`/api/messages/${id}`, { method: "DELETE" }).then((r) => parseResponse(r))
       setMessages((prev) => prev.filter((m) => m.id !== id))
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Erro ao remover mensagem")
@@ -345,7 +347,7 @@ export function FollowupDashboard() {
     setSettingsSaved(false)
     setIsSavingSettings(true)
     try {
-      const updated = await fetch("/api/settings", {
+      const updated = await apiFetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -436,6 +438,10 @@ export function FollowupDashboard() {
               <p className="text-sm text-muted-foreground">Painel de Follow-ups</p>
             </div>
             <div className="flex items-center gap-2">
+              <Link href="/docs" className={buttonVariants({ variant: "outline", size: "sm", className: "gap-2" })}>
+                <BookText className="h-4 w-4" />
+                API
+              </Link>
               <ThemeToggle />
               <Button variant="outline" size="sm" onClick={logout} className="gap-2">
                 <LogOut className="h-4 w-4" />

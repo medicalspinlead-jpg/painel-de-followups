@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { dispatchImmediateFollowups } from "@/lib/webhook"
+import { requireApiKey } from "@/lib/api-auth"
 
 const VALID_STAGES = ["desqualificado", "dia1", "dia2", "dia3", "aguarda_7_dias"]
 
 // GET /api/leads?stage=dia1&categoryId=xxx - lista leads com filtros opcionais
 export async function GET(request: NextRequest) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const stage = request.nextUrl.searchParams.get("stage")
     const categoryId = request.nextUrl.searchParams.get("categoryId")
@@ -28,6 +31,8 @@ export async function GET(request: NextRequest) {
 
 // POST /api/leads - cria um novo lead
 export async function POST(request: NextRequest) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const body = await request.json()
     if (!body.name || typeof body.name !== "string") {

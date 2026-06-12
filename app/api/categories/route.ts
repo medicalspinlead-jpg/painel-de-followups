@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireApiKey } from "@/lib/api-auth"
 
 // GET /api/categories - lista todas as categorias
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const categories = await prisma.category.findMany({
       orderBy: { createdAt: "asc" },
@@ -19,6 +22,8 @@ export async function GET() {
 
 // POST /api/categories - cria uma nova categoria
 export async function POST(request: NextRequest) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const body = await request.json()
     if (!body.name || typeof body.name !== "string") {

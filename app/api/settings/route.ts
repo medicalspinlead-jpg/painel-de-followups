@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireApiKey } from "@/lib/api-auth"
 
 const SETTINGS_ID = "default"
 
 // GET /api/settings - retorna as configurações (cria com defaults se não existir)
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const settings = await prisma.settings.upsert({
       where: { id: SETTINGS_ID },
@@ -24,6 +27,8 @@ export async function GET() {
 
 // PATCH /api/settings - atualiza as configurações
 export async function PATCH(request: NextRequest) {
+  const unauthorized = requireApiKey(request)
+  if (unauthorized) return unauthorized
   try {
     const body = await request.json()
     const settings = await prisma.settings.upsert({
