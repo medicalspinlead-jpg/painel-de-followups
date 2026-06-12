@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { getBrazilTimeParts } from "@/lib/timezone"
+import { renderTemplate } from "@/lib/template"
 
 const SETTINGS_ID = "default"
 
@@ -78,7 +79,7 @@ export async function dispatchImmediateFollowups(leadId: string): Promise<number
         order: message.order,
         dayOffset: message.dayOffset,
         time: message.time,
-        content: message.message,
+        content: renderTemplate(message.message, lead),
       },
     }
     const ok = await sendWebhookEvent(settings.webhookUrl, settings.webhookSecret, event)

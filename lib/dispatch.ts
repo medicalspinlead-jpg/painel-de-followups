@@ -3,6 +3,7 @@ import type { LeadStage } from "@prisma/client"
 import { getBrazilTimeParts } from "@/lib/timezone"
 import { dueFollowups, DAILY_STAGES, nextStageAfter } from "@/lib/followup-schedule"
 import { sendWebhookEvent, type WebhookEvent } from "@/lib/webhook"
+import { renderTemplate } from "@/lib/template"
 
 const SETTINGS_ID = "default"
 
@@ -164,7 +165,7 @@ export async function runDispatch(): Promise<DispatchResult> {
           order: message.order,
           dayOffset: message.dayOffset,
           time: message.time,
-          content: message.content,
+          content: renderTemplate(message.content, lead),
         },
       }
 

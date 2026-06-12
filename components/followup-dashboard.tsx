@@ -951,6 +951,33 @@ export function FollowupDashboard() {
                       placeholder="Mensagem do follow-up..."
                       className="min-h-24 w-full rounded-md border border-border bg-input px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     />
+                    <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                      <p className="text-xs text-muted-foreground mb-1.5">
+                        Tags dinamicas (substituidas pelos dados do lead ao enviar):
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { tag: "{nome}", desc: "nome do lead" },
+                          { tag: "{telefone}", desc: "telefone do lead" },
+                          { tag: "{email}", desc: "email do lead" },
+                        ].map(({ tag, desc }) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            title={`Inserir ${desc}`}
+                            onClick={() =>
+                              setNewMessage((prev) => ({
+                                ...prev,
+                                message: `${prev.message ?? ""}${tag}`,
+                              }))
+                            }
+                            className="rounded bg-secondary px-1.5 py-0.5 font-mono text-xs text-secondary-foreground hover:bg-secondary/80"
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <DialogFooter>
