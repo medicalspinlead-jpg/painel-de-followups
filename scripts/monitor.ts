@@ -26,18 +26,46 @@ type Row = {
   targetDay: number
 }
 
-async function loadRows(): Promise<Row[]> {
+type WaitingRow = {
+  leadId: string
+  leadName: string
+  categoryName: string
+  /** Quando o lead entrou na etapa de espera (proxy: updatedAt). */
+  since: Date
+}
+
+type MonitorData = {
+  rows: Row[]
+  waiting: WaitingRow[]
+}
+
+async function loadRows(): Promise<MonitorData> {
   const now = new Date()
   const settings = await prisma.settings.findUnique({ where: { id: "default" } })
   const sendWeekends = settings?.sendWeekends ?? false
   const leads = await prisma.lead.findMany({
-    where: { stage: { in: DAILY_STAGES as LeadStage[] }, categoryId: { not: null } },
+    where: {
+      stage: { in: [...DAILY_STAGES, "aguarda_7_dias"] as LeadStage[] },
+      categoryId: { not: null },
+    },
     include: { category: { include: { messages: { where: { active: true } } } } },
   })
 
   const rows: Row[] = []
+  const waiting: WaitingRow[] = []
   for (const lead of leads) {
     if (!lead.category || !lead.category.active) continue
+
+    if (lead.stage === "aguarda_7_dias") {
+      waiting.push({
+        leadId: lead.id,
+        leadName: lead.name,
+        categoryName: lead.category.name,
+        since: lead.updatedAt,
+      })
+      continue
+    }
+
     const next = nextDispatchForLead({
       now,
       createdAt: lead.createdAt,
@@ -64,7 +92,8 @@ async function loadRows(): Promise<Row[]> {
     })
   }
   rows.sort((a, b) => a.at.getTime() - b.at.getTime())
-  return rows
+  waiting.sort((a, b) => a.since.getTime() - b.since.getTime())
+  return { rows, waiting }
 }
 
 function formatCountdown(ms: number): string {
@@ -79,7 +108,17 @@ function formatCountdown(ms: number): string {
   return d > 0 ? `${d}d ${hms}` : hms
 }
 
-function render(rows: Row[]) {
+function formatElapsed(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  const d = Math.floor(totalSec / 86400)
+  const h = Math.floor((totalSec % 86400) / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h`
+  if (h > 0) return `${h}h ${m}min`
+  return `${m}min`
+}
+
+function render({ rows, waiting }: MonitorData) {
   // Limpa a tela e move o cursor para o topo
   process.stdout.write("\x1b[2J\x1b[H")
   const now = new Date()
@@ -87,31 +126,45 @@ function render(rows: Row[]) {
   console.log(`  MONITOR DE FOLLOW-UP  ·  agora: ${formatBrazilTimestamp(now)} (Brasília)`)
   console.log("=".repeat(72))
 
+  console.log("\n  PRÓXIMOS ENVIOS (dia1 · dia2 · dia3)")
   if (rows.length === 0) {
     console.log("\n  Nenhum lead com envio agendado no momento.")
-    console.log("  (Crie um lead em uma categoria com mensagens ativas para ver a contagem.)\n")
-    return
+    console.log("  (Crie um lead em uma categoria com mensagens ativas para ver a contagem.)")
+  } else {
+    for (const row of rows) {
+      const ms = row.at.getTime() - now.getTime()
+      const countdown = formatCountdown(ms)
+      const marker = ms <= 0 ? "►" : "·"
+      console.log(
+        `\n  ${marker} ${row.leadName}  [${row.stage}]  → ${row.categoryName}`,
+      )
+      console.log(`     próximo envio: ${formatBrazilTimestamp(row.at)} (Brasília)`)
+      console.log(`     faltam:        ${countdown}`)
+      console.log(`     mensagem:      "${row.message.content.slice(0, 50)}${row.message.content.length > 50 ? "..." : ""}"`)
+    }
   }
 
-  for (const row of rows) {
-    const ms = row.at.getTime() - now.getTime()
-    const countdown = formatCountdown(ms)
-    const marker = ms <= 0 ? "►" : "·"
-    console.log(
-      `\n  ${marker} ${row.leadName}  [${row.stage}]  → ${row.categoryName}`,
-    )
-    console.log(`     próximo envio: ${formatBrazilTimestamp(row.at)} (Brasília)`)
-    console.log(`     faltam:        ${countdown}`)
-    console.log(`     mensagem:      "${row.message.content.slice(0, 50)}${row.message.content.length > 50 ? "..." : ""}"`)
+  console.log("\n" + "-".repeat(72))
+  console.log(`\n  AGUARDANDO 7 DIAS  (sequência diária concluída · ${waiting.length})`)
+  if (waiting.length === 0) {
+    console.log("\n  Nenhum lead nesta etapa no momento.")
+  } else {
+    for (const row of waiting) {
+      const elapsed = formatElapsed(now.getTime() - row.since.getTime())
+      console.log(`\n  ⏳ ${row.leadName}  → ${row.categoryName}`)
+      console.log(`     desde:    ${formatBrazilTimestamp(row.since)} (Brasília)`)
+      console.log(`     em espera: há ${elapsed}`)
+    }
   }
+
   console.log("\n" + "-".repeat(72))
   console.log("  Atualiza a cada 1s · relê o banco a cada 30s · Ctrl+C para sair")
 }
 
 async function main() {
-  let rows: Row[] = []
+  let data: MonitorData = { rows: [], waiting: [] }
   try {
-    rows = await loadRows()
+    data = await loadRows()
   } catch (err) {
     console.error("\n[monitor] Não foi possível conectar ao banco de dados.")
     console.error("  Verifique se a variável DATABASE_URL está definida e o banco está acessível.")
@@ -119,19 +172,19 @@ async function main() {
     await prisma.$disconnect()
     process.exit(1)
   }
-  render(rows)
+  render(data)
 
   let lastDbLoad = Date.now()
   const tick = setInterval(async () => {
     if (Date.now() - lastDbLoad >= REFRESH_DB_MS) {
       try {
-        rows = await loadRows()
+        data = await loadRows()
         lastDbLoad = Date.now()
       } catch (err) {
         console.error("[monitor] Falha ao reler o banco:", err instanceof Error ? err.message : String(err))
       }
     }
-    render(rows)
+    render(data)
   }, TICK_MS)
 
   const shutdown = async () => {
