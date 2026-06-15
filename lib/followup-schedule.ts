@@ -25,6 +25,45 @@ export function nextStageAfter(stage: string): string | null {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
+/** Dia da semana (0=domingo ... 6=sábado) de uma data YYYY-MM-DD no fuso de Brasília. */
+function weekdayOfDate(dateStr: string): number {
+  // Usa meio-dia para evitar bordas de meia-noite / horário de verão.
+  return getBrazilTimeParts(brazilWallTimeToUtc(dateStr, "12:00")).weekday
+}
+
+/** Soma `days` dias corridos a uma data YYYY-MM-DD (fuso de Brasília). */
+function addCalendarDays(dateStr: string, days: number): string {
+  const noon = brazilWallTimeToUtc(dateStr, "12:00")
+  return getBrazilTimeParts(new Date(noon.getTime() + days * MS_PER_DAY)).date
+}
+
+/**
+ * Calcula a data-alvo (YYYY-MM-DD, Brasília) da etapa `targetDay` para um lead.
+ *
+ * - `sendWeekends = true`: dias CORRIDOS (createdAt + N*24h). Comportamento original.
+ * - `sendWeekends = false`: N dias ÚTEIS a partir da criação, pulando sábados e
+ *   domingos. Assim, uma etapa que cairia no fim de semana é ADIADA para a
+ *   próxima segunda-feira, em vez de manter a data no sábado/domingo (que nunca
+ *   bateria com "hoje" na segunda e faria a mensagem ser perdida).
+ *
+ * Ex.: lead criado na quarta, dia1=quinta, dia2=sexta, dia3 cairia no sábado →
+ * é adiado para a segunda-feira seguinte.
+ */
+export function targetDateFor(createdAt: Date, targetDay: number, sendWeekends: boolean): string {
+  if (sendWeekends) {
+    return getBrazilTimeParts(new Date(createdAt.getTime() + targetDay * MS_PER_DAY)).date
+  }
+
+  let date = getBrazilTimeParts(createdAt).date
+  let counted = 0
+  while (counted < targetDay) {
+    date = addCalendarDays(date, 1)
+    const wd = weekdayOfDate(date)
+    if (wd !== 0 && wd !== 6) counted++
+  }
+  return date
+}
+
 export type ScheduleMessage = {
   id: string
   order: number
@@ -94,8 +133,10 @@ export function dueFollowups(input: ScheduleDecisionInput): DueFollowups {
     return { targetDay, targetDate: "", messages: [] }
   }
 
-  // Data-alvo = data de criação + N dias, convertida para o dia no fuso de Brasília.
-  const targetDate = getBrazilTimeParts(new Date(createdAt.getTime() + targetDay * MS_PER_DAY)).date
+  // Data-alvo da etapa. Quando o envio em fins de semana está desabilitado, é
+  // contada em dias ÚTEIS, adiando etapas que cairiam no sábado/domingo para a
+  // segunda-feira seguinte (em vez de perder a mensagem).
+  const targetDate = targetDateFor(createdAt, targetDay, sendWeekends)
 
   if (targetDate !== brazil.date) {
     return { targetDay, targetDate, messages: [] }
@@ -156,8 +197,10 @@ export function nextDispatchForLead(input: {
   createdAt: Date
   stage: string
   messages: ScheduleMessage[]
+  /** Se o envio em fins de semana está habilitado. Default: true (dias corridos). */
+  sendWeekends?: boolean
 }): NextDispatch | null {
-  const { now, createdAt, stage, messages } = input
+  const { now, createdAt, stage, messages, sendWeekends = true } = input
 
   const targetDay = STAGE_TO_DAY[stage]
   if (targetDay === undefined) return null
@@ -165,8 +208,9 @@ export function nextDispatchForLead(input: {
   const message = messages.find((m) => m.active && m.dayOffset === targetDay)
   if (!message) return null
 
-  // Dia-alvo no fuso de Brasília = data de criação + N dias.
-  const targetDate = getBrazilTimeParts(new Date(createdAt.getTime() + targetDay * MS_PER_DAY)).date
+  // Dia-alvo no fuso de Brasília. Quando fins de semana estão desabilitados,
+  // conta em dias úteis (adia para a segunda-feira seguinte).
+  const targetDate = targetDateFor(createdAt, targetDay, sendWeekends)
 
   // Instante UTC exato = hora-parede (targetDate + message.time) no fuso de Brasília.
   const at = brazilWallTimeToUtc(targetDate, message.time)

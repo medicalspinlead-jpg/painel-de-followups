@@ -28,6 +28,8 @@ type Row = {
 
 async function loadRows(): Promise<Row[]> {
   const now = new Date()
+  const settings = await prisma.settings.findUnique({ where: { id: "default" } })
+  const sendWeekends = settings?.sendWeekends ?? false
   const leads = await prisma.lead.findMany({
     where: { stage: { in: DAILY_STAGES as LeadStage[] }, categoryId: { not: null } },
     include: { category: { include: { messages: { where: { active: true } } } } },
@@ -40,6 +42,7 @@ async function loadRows(): Promise<Row[]> {
       now,
       createdAt: lead.createdAt,
       stage: lead.stage,
+      sendWeekends,
       messages: lead.category.messages.map((m) => ({
         id: m.id,
         order: m.order,

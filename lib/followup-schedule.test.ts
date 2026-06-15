@@ -308,6 +308,49 @@ test("dueFollowups vazio fora do dia-alvo", () => {
   assert.equal(due.messages.length, 0)
 })
 
+test("adia para segunda quando a etapa cairia no sábado (sendWeekends false)", () => {
+  // Lead criado na quarta 2026-06-10. dia1=quinta11, dia2=sexta12,
+  // dia3 cairia no sábado13 -> deve ser adiado para segunda15.
+  const createdAt = brazil("2026-06-10T08:00") // quarta
+  const segunda = brazil("2026-06-15T09:00") // segunda 09:00 (>= horário-alvo)
+  const due = dueFollowups({
+    now: segunda,
+    createdAt,
+    stage: "dia3",
+    sendWeekends: false,
+    messages: [msg({ id: "m3", dayOffset: 3, time: "08:00" })],
+  })
+  assert.equal(due.targetDate, "2026-06-15")
+  assert.deepEqual(due.messages.map((m) => m.id), ["m3"])
+})
+
+test("NÃO envia a etapa adiada no próprio sábado (sendWeekends false)", () => {
+  const createdAt = brazil("2026-06-10T08:00") // quarta
+  const sabado = brazil("2026-06-13T09:00") // sábado
+  const due = dueFollowups({
+    now: sabado,
+    createdAt,
+    stage: "dia3",
+    sendWeekends: false,
+    messages: [msg({ id: "m3", dayOffset: 3, time: "08:00" })],
+  })
+  assert.equal(due.messages.length, 0)
+})
+
+test("com sendWeekends true a etapa dia3 permanece no sábado (dias corridos)", () => {
+  const createdAt = brazil("2026-06-10T08:00") // quarta
+  const sabado = brazil("2026-06-13T09:00") // sábado +72h
+  const due = dueFollowups({
+    now: sabado,
+    createdAt,
+    stage: "dia3",
+    sendWeekends: true,
+    messages: [msg({ id: "m3", dayOffset: 3, time: "08:00" })],
+  })
+  assert.equal(due.targetDate, "2026-06-13")
+  assert.deepEqual(due.messages.map((m) => m.id), ["m3"])
+})
+
 test("dueFollowups respeita finais de semana desabilitados", () => {
   const createdAt = brazil("2026-06-12T08:00") // sexta
   const now = brazil("2026-06-13T12:00") // sábado
