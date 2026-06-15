@@ -1,6 +1,13 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { decideFollowup, dueFollowups, nextDispatchForLead, type ScheduleMessage } from "@/lib/followup-schedule"
+import {
+  decideFollowup,
+  dueFollowups,
+  nextDispatchForLead,
+  restartDateAfterWait,
+  shouldRestartCycle,
+  type ScheduleMessage,
+} from "@/lib/followup-schedule"
 
 /**
  * Helper: cria uma data correspondente a um horário de Brasília (UTC-3, sem DST atualmente).
@@ -362,4 +369,40 @@ test("dueFollowups respeita finais de semana desabilitados", () => {
     messages: [msg({ dayOffset: 1, time: "08:00" })],
   })
   assert.equal(due.messages.length, 0)
+})
+
+// ---- Reinício automático do ciclo após "aguarda_7_dias" (7 dias úteis) ----
+
+test("restartDateAfterWait conta 7 dias úteis pulando fim de semana", () => {
+  // Espera iniciada na segunda 2026-06-08. 7 dias úteis:
+  // ter09, qua10, qui11, sex12, [sáb13/dom14 pulados], seg15, ter16, qua17.
+  const waitingSince = brazil("2026-06-08T10:00")
+  assert.equal(restartDateAfterWait(waitingSince), "2026-06-17")
+})
+
+test("NÃO reinicia antes de cumprir os 7 dias úteis", () => {
+  const waitingSince = brazil("2026-06-08T10:00")
+  // Terça 06-16 ainda é o 6º dia útil → não reinicia.
+  assert.equal(shouldRestartCycle({ now: brazil("2026-06-16T12:00"), waitingSince }), false)
+})
+
+test("reinicia o ciclo ao alcançar o 7º dia útil", () => {
+  const waitingSince = brazil("2026-06-08T10:00")
+  // Quarta 06-17 é o 7º dia útil → reinicia.
+  assert.equal(shouldRestartCycle({ now: brazil("2026-06-17T08:00"), waitingSince }), true)
+})
+
+test("após reiniciar, dia1 é contado a partir da nova âncora (cycleStartedAt)", () => {
+  // Ciclo reiniciado na quarta 2026-06-17 (nova âncora). dia1 = próximo dia
+  // útil = quinta 06-18, no horário da mensagem.
+  const cycleStartedAt = brazil("2026-06-17T08:00")
+  const due = dueFollowups({
+    now: brazil("2026-06-18T09:00"),
+    createdAt: cycleStartedAt,
+    stage: "dia1",
+    sendWeekends: false,
+    messages: [msg({ id: "r1", dayOffset: 1, time: "08:00" })],
+  })
+  assert.equal(due.targetDate, "2026-06-18")
+  assert.deepEqual(due.messages.map((m) => m.id), ["r1"])
 })

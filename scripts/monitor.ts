@@ -10,10 +10,15 @@
  */
 import { prisma } from "@/lib/prisma"
 import type { LeadStage } from "@prisma/client"
-import { nextDispatchForLead, DAILY_STAGES, type ScheduleMessage } from "@/lib/followup-schedule"
+import {
+  nextDispatchForLead,
+  DAILY_STAGES,
+  restartDateAfterWait,
+  type ScheduleMessage,
+} from "@/lib/followup-schedule"
 import { formatBrazilTimestamp } from "@/lib/timezone"
 
-const REFRESH_DB_MS = 30_000
+const REFRESH_DB_MS = 3_000
 const TICK_MS = 1_000
 
 type Row = {
@@ -30,8 +35,10 @@ type WaitingRow = {
   leadId: string
   leadName: string
   categoryName: string
-  /** Quando o lead entrou na etapa de espera (proxy: updatedAt). */
+  /** Quando o lead entrou na etapa de espera. */
   since: Date
+  /** Data (YYYY-MM-DD, Brasília) em que o ciclo reinicia em dia1. */
+  restartDate: string
 }
 
 type MonitorData = {
@@ -57,18 +64,21 @@ async function loadRows(): Promise<MonitorData> {
     if (!lead.category || !lead.category.active) continue
 
     if (lead.stage === "aguarda_7_dias") {
+      const since = lead.waitingSince ?? lead.updatedAt
       waiting.push({
         leadId: lead.id,
         leadName: lead.name,
         categoryName: lead.category.name,
-        since: lead.updatedAt,
+        since,
+        restartDate: restartDateAfterWait(since),
       })
       continue
     }
 
     const next = nextDispatchForLead({
       now,
-      createdAt: lead.createdAt,
+      // Âncora do ciclo atual (recomeça a cada reinício).
+      createdAt: lead.cycleStartedAt ?? lead.createdAt,
       stage: lead.stage,
       sendWeekends,
       messages: lead.category.messages.map((m) => ({
@@ -152,8 +162,9 @@ function render({ rows, waiting }: MonitorData) {
     for (const row of waiting) {
       const elapsed = formatElapsed(now.getTime() - row.since.getTime())
       console.log(`\n  ⏳ ${row.leadName}  → ${row.categoryName}`)
-      console.log(`     desde:    ${formatBrazilTimestamp(row.since)} (Brasília)`)
-      console.log(`     em espera: há ${elapsed}`)
+      console.log(`     desde:         ${formatBrazilTimestamp(row.since)} (Brasília)`)
+      console.log(`     em espera:     há ${elapsed}`)
+      console.log(`     reinicia em:   ${row.restartDate} (volta para o dia 1)`)
     }
   }
 

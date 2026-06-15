@@ -23,6 +23,12 @@ export function nextStageAfter(stage: string): string | null {
   return STAGE_PROGRESSION[stage] ?? null
 }
 
+/**
+ * Quantos DIAS ÚTEIS o lead aguarda na etapa "aguarda_7_dias" antes de o ciclo
+ * reiniciar automaticamente em "dia1".
+ */
+export const WAIT_BUSINESS_DAYS = 7
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 /** Dia da semana (0=domingo ... 6=sábado) de uma data YYYY-MM-DD no fuso de Brasília. */
@@ -62,6 +68,26 @@ export function targetDateFor(createdAt: Date, targetDay: number, sendWeekends: 
     if (wd !== 0 && wd !== 6) counted++
   }
   return date
+}
+
+/**
+ * Data (YYYY-MM-DD, Brasília) em que a espera de "aguarda_7_dias" termina e o
+ * ciclo deve reiniciar em "dia1". Conta sempre em DIAS ÚTEIS a partir de
+ * `waitingSince`, pulando sábados e domingos.
+ */
+export function restartDateAfterWait(waitingSince: Date): string {
+  // Reaproveita a contagem de dias úteis de targetDateFor (sendWeekends=false).
+  return targetDateFor(waitingSince, WAIT_BUSINESS_DAYS, false)
+}
+
+/**
+ * Decide, de forma pura, se um lead em "aguarda_7_dias" já deve reiniciar o
+ * ciclo no instante `now` (Brasília). Verdadeiro quando a data de hoje já
+ * alcançou a data de reinício (7 dias úteis após o início da espera).
+ */
+export function shouldRestartCycle(input: { now: Date; waitingSince: Date }): boolean {
+  const today = getBrazilTimeParts(input.now).date
+  return today >= restartDateAfterWait(input.waitingSince)
 }
 
 export type ScheduleMessage = {

@@ -55,6 +55,13 @@ model Lead {
   notes      String     @default("")
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
+  // Âncora do ciclo atual: a sequência dia1/dia2/dia3 é contada a partir daqui.
+  // No 1º ciclo é igual a createdAt; ao reiniciar (após "aguarda_7_dias") é
+  // atualizada para o instante do reinício, recomeçando a contagem dos dias.
+  cycleStartedAt DateTime @default(now())
+  // Quando o lead entrou em "aguarda_7_dias". Usado para contar os 7 dias úteis
+  // de espera antes de reiniciar o ciclo. Null fora dessa etapa.
+  waitingSince   DateTime?
 
   category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   logs     FollowupLog[]

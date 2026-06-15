@@ -36,9 +36,9 @@ export async function register() {
     running = true
     try {
       const result = await runDispatch()
-      if (result.dispatched > 0 || result.failures.length > 0) {
+      if (result.dispatched > 0 || result.restarted > 0 || result.failures.length > 0) {
         console.log(
-          `[scheduler] ${result.date} ${result.time} · enviados=${result.dispatched} pulados=${result.skipped} falhas=${result.failures.length}`,
+          `[scheduler] ${result.date} ${result.time} · enviados=${result.dispatched} reiniciados=${result.restarted} pulados=${result.skipped} falhas=${result.failures.length}`,
         )
       }
     } catch (err) {

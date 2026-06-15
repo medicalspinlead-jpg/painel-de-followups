@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import type { LeadStage } from "@prisma/client"
 import { getBrazilTimeParts } from "@/lib/timezone"
-import { dueFollowups, DAILY_STAGES, nextStageAfter } from "@/lib/followup-schedule"
+import { dueFollowups, DAILY_STAGES, nextStageAfter, shouldRestartCycle } from "@/lib/followup-schedule"
 import { sendWebhookEvent, type WebhookEvent } from "@/lib/webhook"
 import { renderTemplate } from "@/lib/template"
 
@@ -34,6 +34,20 @@ export async function ensureFollowupLogTable(): Promise<void> {
     CREATE INDEX IF NOT EXISTS "followup_logs_leadId_idx"
     ON "followup_logs" ("leadId");
   `)
+
+  // Colunas do ciclo de follow-up no lead (self-host não roda migrações).
+  // cycleStartedAt: âncora da sequência diária; backfill = createdAt.
+  // waitingSince: início da espera de 7 dias úteis (null fora de aguarda_7_dias).
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "cycleStartedAt" TIMESTAMP(3);
+  `)
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "waitingSince" TIMESTAMP(3);
+  `)
+  await prisma.$executeRawUnsafe(`
+    UPDATE "leads" SET "cycleStartedAt" = "createdAt" WHERE "cycleStartedAt" IS NULL;
+  `)
+
   ensured = true
 }
 
@@ -42,6 +56,8 @@ export type DispatchResult = {
   matched: number
   dispatched: number
   advanced: number
+  /** Leads que reiniciaram o ciclo (aguarda_7_dias → dia1). */
+  restarted: number
   skipped: number
   failures: string[]
   date: string
@@ -69,6 +85,7 @@ export async function runDispatch(): Promise<DispatchResult> {
     matched: 0,
     dispatched: 0,
     advanced: 0,
+    restarted: 0,
     skipped: 0,
     failures: [],
     date: brazil.date,
@@ -96,7 +113,9 @@ export async function runDispatch(): Promise<DispatchResult> {
 
     const due = dueFollowups({
       now,
-      createdAt: lead.createdAt,
+      // Âncora do ciclo atual (no 1º ciclo == createdAt; após reinício, o
+      // instante do reinício). Garante que dia1/2/3 recomecem a cada ciclo.
+      createdAt: lead.cycleStartedAt ?? lead.createdAt,
       stage: lead.stage,
       sendWeekends: settings.sendWeekends,
       messages: lead.category.messages.map((m) => ({
@@ -210,12 +229,42 @@ export async function runDispatch(): Promise<DispatchResult> {
         if (next) {
           await prisma.lead.update({
             where: { id: lead.id },
-            data: { stage: next as never },
+            data: {
+              stage: next as never,
+              // Ao entrar em "aguarda_7_dias", marca o início da espera para
+              // contar os 7 dias úteis até o reinício do ciclo.
+              ...(next === "aguarda_7_dias" ? { waitingSince: now } : {}),
+            },
           })
           base.advanced++
         }
       }
     }
+  }
+
+  // Reinício automático do ciclo: leads em "aguarda_7_dias" que já cumpriram os
+  // 7 dias úteis de espera voltam para "dia1", reiniciando a sequência diária.
+  // A âncora (cycleStartedAt) passa a ser o instante do reinício, então a
+  // primeira mensagem (dia1) vai para o próximo dia útil — repetindo o fluxo
+  // indefinidamente.
+  const waitingLeads = await prisma.lead.findMany({
+    where: { stage: "aguarda_7_dias" as LeadStage, categoryId: { not: null } },
+  })
+
+  for (const lead of waitingLeads) {
+    // Fallback para leads que entraram na espera antes desta coluna existir.
+    const waitingSince = lead.waitingSince ?? lead.updatedAt
+    if (!shouldRestartCycle({ now, waitingSince })) continue
+
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        stage: "dia1" as never,
+        cycleStartedAt: now,
+        waitingSince: null,
+      },
+    })
+    base.restarted++
   }
 
   return base
