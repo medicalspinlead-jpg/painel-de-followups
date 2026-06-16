@@ -96,6 +96,7 @@ export function FollowupDashboard() {
     name: "",
     email: "",
     phone: "",
+    pipedriveId: "",
     categoryId: "",
     stage: "dia1",
     notes: "",
@@ -165,13 +166,14 @@ export function FollowupDashboard() {
           name: newLead.name,
           email: newLead.email || "",
           phone: newLead.phone || "",
+          pipedriveId: newLead.pipedriveId || null,
           categoryId: newLead.categoryId,
           stage: newLead.stage || "dia1",
           notes: newLead.notes || "",
         }),
       }).then((r) => parseResponse<Lead>(r))
       setLeads((prev) => [lead, ...prev])
-      setNewLead({ name: "", email: "", phone: "", categoryId: "", stage: "dia1", notes: "" })
+      setNewLead({ name: "", email: "", phone: "", pipedriveId: "", categoryId: "", stage: "dia1", notes: "" })
       setIsLeadDialogOpen(false)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Erro ao adicionar lead")
@@ -549,6 +551,19 @@ export function FollowupDashboard() {
                       </select>
                     </div>
                     <div className="grid gap-2">
+                      <Label htmlFor="pipedriveId">
+                        ID do lead no Pipedrive{" "}
+                        <span className="text-muted-foreground font-normal">(opcional)</span>
+                      </Label>
+                      <Input
+                        id="pipedriveId"
+                        value={newLead.pipedriveId ?? ""}
+                        onChange={(e) => setNewLead({ ...newLead, pipedriveId: e.target.value })}
+                        placeholder="Ex.: 12345"
+                        className="bg-input border-border"
+                      />
+                    </div>
+                    <div className="grid gap-2">
                       <Label htmlFor="notes">Observacoes</Label>
                       <Input
                         id="notes"
@@ -672,12 +687,20 @@ export function FollowupDashboard() {
 
                     <div className="grid gap-3 pt-2">
                       <div className="flex items-center justify-between py-2 border-b border-border">
+                        <span className="text-sm text-muted-foreground">ID interno (app)</span>
+                        <span className="text-sm font-medium font-mono">{selectedLead.id}</span>
+                      </div>
+                      <div className="flex items-center justify-between py-2 border-b border-border">
                         <span className="text-sm text-muted-foreground">Email</span>
                         <span className="text-sm font-medium">{selectedLead.email || "Nao informado"}</span>
                       </div>
                       <div className="flex items-center justify-between py-2 border-b border-border">
                         <span className="text-sm text-muted-foreground">Telefone</span>
                         <span className="text-sm font-medium">{selectedLead.phone || "Nao informado"}</span>
+                      </div>
+                      <div className="flex items-center justify-between py-2 border-b border-border">
+                        <span className="text-sm text-muted-foreground">ID no Pipedrive</span>
+                        <span className="text-sm font-medium">{selectedLead.pipedriveId || "Nao informado"}</span>
                       </div>
                       <div className="flex items-center justify-between py-2 border-b border-border">
                         <span className="text-sm text-muted-foreground">Etapa</span>

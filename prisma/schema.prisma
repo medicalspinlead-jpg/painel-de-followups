@@ -50,6 +50,8 @@ model Lead {
   name       String
   email      String     @default("")
   phone      String     @default("")
+  // ID opcional do lead correspondente no Pipedrive
+  pipedriveId String?
   categoryId String?
   stage      LeadStage @default(dia1)
   notes      String     @default("")

@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
         name: body.name,
         email: body.email ?? "",
         phone: body.phone ?? "",
+        pipedriveId: body.pipedriveId ? String(body.pipedriveId) : null,
         categoryId: body.categoryId ?? null,
         stage: body.stage ?? "dia1",
         notes: body.notes ?? "",

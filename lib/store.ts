@@ -24,6 +24,7 @@ export type Lead = {
   name: string
   email: string
   phone: string
+  pipedriveId?: string | null
   categoryId: string
   stage: LeadStage
   createdAt: Date
