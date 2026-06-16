@@ -434,27 +434,27 @@ export function FollowupDashboard() {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-semibold text-foreground">{settings.companyName}</h1>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-semibold text-foreground truncate">{settings.companyName}</h1>
               <p className="text-sm text-muted-foreground">Painel de Follow-ups</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <Link href="/docs" className={buttonVariants({ variant: "outline", size: "sm", className: "gap-2" })}>
                 <BookText className="h-4 w-4" />
-                API
+                <span className="hidden sm:inline">API</span>
               </Link>
               <ThemeToggle />
               <Button variant="outline" size="sm" onClick={logout} className="gap-2">
                 <LogOut className="h-4 w-4" />
-                Sair
+                <span className="hidden sm:inline">Sair</span>
               </Button>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-6">
+      <main className="container mx-auto px-4 py-4 sm:py-6">
         {loadError && (
           <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             Nao foi possivel carregar os dados do banco: {loadError}
@@ -469,21 +469,21 @@ export function FollowupDashboard() {
           <div className="flex items-center justify-center py-20 text-muted-foreground">Carregando dados...</div>
         ) : (
         <Tabs defaultValue="leads" className="space-y-6">
-          <TabsList className="bg-card border border-border">
-            <TabsTrigger value="leads" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+          <TabsList className="bg-card border border-border w-full sm:w-fit">
+            <TabsTrigger value="leads" className="flex-1 sm:flex-none data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Leads
             </TabsTrigger>
-            <TabsTrigger value="followups" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <TabsTrigger value="followups" className="flex-1 sm:flex-none data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Follow-ups
             </TabsTrigger>
-            <TabsTrigger value="settings" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <TabsTrigger value="settings" className="flex-1 sm:flex-none data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Configuracoes
             </TabsTrigger>
           </TabsList>
 
           {/* LEADS TAB */}
           <TabsContent value="leads" className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-medium">Gerenciar Leads</h2>
                 <p className="text-sm text-muted-foreground">
@@ -492,9 +492,9 @@ export function FollowupDashboard() {
               </div>
               <Dialog open={isLeadDialogOpen} onOpenChange={setIsLeadDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button>Adicionar Lead</Button>
+                  <Button className="w-full sm:w-auto">Adicionar Lead</Button>
                 </DialogTrigger>
-                <DialogContent className="bg-card border-border">
+                <DialogContent className="bg-card border-border max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Novo Lead</DialogTitle>
                     <DialogDescription>
@@ -512,7 +512,7 @@ export function FollowupDashboard() {
                         className="bg-input border-border"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label htmlFor="email">Email</Label>
                         <Input
@@ -586,7 +586,8 @@ export function FollowupDashboard() {
 
             <Card className="bg-card border-border">
               <CardContent className="p-0">
-                <Table>
+                <div className="w-full overflow-x-auto">
+                <Table className="min-w-[640px]">
                   <TableHeader>
                     <TableRow className="border-border hover:bg-transparent">
                       <TableHead>Nome</TableHead>
@@ -658,12 +659,13 @@ export function FollowupDashboard() {
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
 
             {/* Lead Detail Dialog */}
             <Dialog open={isLeadDetailOpen} onOpenChange={setIsLeadDetailOpen}>
-              <DialogContent className="bg-card border-border max-w-lg">
+              <DialogContent className="bg-card border-border max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Detalhes do Lead</DialogTitle>
                   <DialogDescription>
@@ -686,21 +688,21 @@ export function FollowupDashboard() {
                     </div>
 
                     <div className="grid gap-3 pt-2">
-                      <div className="flex items-center justify-between py-2 border-b border-border">
-                        <span className="text-sm text-muted-foreground">ID interno (app)</span>
-                        <span className="text-sm font-medium font-mono">{selectedLead.id}</span>
+                      <div className="flex flex-col gap-1 py-2 border-b border-border sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                        <span className="text-sm text-muted-foreground shrink-0">ID interno (app)</span>
+                        <span className="text-sm font-medium font-mono break-all sm:text-right">{selectedLead.id}</span>
                       </div>
-                      <div className="flex items-center justify-between py-2 border-b border-border">
-                        <span className="text-sm text-muted-foreground">Email</span>
-                        <span className="text-sm font-medium">{selectedLead.email || "Nao informado"}</span>
+                      <div className="flex flex-col gap-1 py-2 border-b border-border sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                        <span className="text-sm text-muted-foreground shrink-0">Email</span>
+                        <span className="text-sm font-medium break-all sm:text-right">{selectedLead.email || "Nao informado"}</span>
                       </div>
-                      <div className="flex items-center justify-between py-2 border-b border-border">
-                        <span className="text-sm text-muted-foreground">Telefone</span>
-                        <span className="text-sm font-medium">{selectedLead.phone || "Nao informado"}</span>
+                      <div className="flex flex-col gap-1 py-2 border-b border-border sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                        <span className="text-sm text-muted-foreground shrink-0">Telefone</span>
+                        <span className="text-sm font-medium break-all sm:text-right">{selectedLead.phone || "Nao informado"}</span>
                       </div>
-                      <div className="flex items-center justify-between py-2 border-b border-border">
-                        <span className="text-sm text-muted-foreground">ID no Pipedrive</span>
-                        <span className="text-sm font-medium">{selectedLead.pipedriveId || "Nao informado"}</span>
+                      <div className="flex flex-col gap-1 py-2 border-b border-border sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                        <span className="text-sm text-muted-foreground shrink-0">ID no Pipedrive</span>
+                        <span className="text-sm font-medium break-all sm:text-right">{selectedLead.pipedriveId || "Nao informado"}</span>
                       </div>
                       <div className="flex items-center justify-between py-2 border-b border-border">
                         <span className="text-sm text-muted-foreground">Etapa</span>
@@ -762,7 +764,7 @@ export function FollowupDashboard() {
           <TabsContent value="followups" className="space-y-6">
             {/* Categories Section */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-lg font-medium">Categorias</h2>
                   <p className="text-sm text-muted-foreground">
@@ -771,7 +773,7 @@ export function FollowupDashboard() {
                 </div>
                 <Dialog open={isCategoryDialogOpen} onOpenChange={setIsCategoryDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button variant="outline">Nova Categoria</Button>
+                    <Button variant="outline" className="w-full sm:w-auto">Nova Categoria</Button>
                   </DialogTrigger>
                   <DialogContent className="bg-card border-border">
                     <DialogHeader>
@@ -830,15 +832,15 @@ export function FollowupDashboard() {
                   return (
                     <Card key={category.id} className={`bg-card border-border ${!category.active && "opacity-50"}`}>
                       <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`h-4 w-4 rounded-full ${category.color}`} />
-                            <CardTitle className="text-base">{category.name}</CardTitle>
-                            <Badge variant="secondary" className="text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-wrap">
+                            <div className={`h-4 w-4 rounded-full shrink-0 ${category.color}`} />
+                            <CardTitle className="text-base truncate">{category.name}</CardTitle>
+                            <Badge variant="secondary" className="text-xs shrink-0">
                               {messageCount}/{MAX_MESSAGES_PER_CATEGORY} mensagens
                             </Badge>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 shrink-0">
                             <Switch
                               checked={category.active}
                               onCheckedChange={() => toggleCategory(category.id)}
@@ -925,7 +927,7 @@ export function FollowupDashboard() {
 
             {/* Add/Edit Message Dialog */}
             <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
-              <DialogContent className="bg-card border-border">
+              <DialogContent className="bg-card border-border max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{editingMessage ? "Editar Mensagem" : "Nova Mensagem de Follow-up"}</DialogTitle>
                   <DialogDescription>
@@ -933,7 +935,7 @@ export function FollowupDashboard() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label htmlFor="dayOffset">Dias apos contato</Label>
                       <Input
@@ -1017,7 +1019,7 @@ export function FollowupDashboard() {
 
           {/* SETTINGS TAB */}
           <TabsContent value="settings" className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-medium">Configuracoes Gerais</h2>
                 <p className="text-sm text-muted-foreground">
@@ -1026,7 +1028,7 @@ export function FollowupDashboard() {
               </div>
               <div className="flex items-center gap-3">
                 {settingsSaved && <span className="text-sm text-emerald-400">Salvo</span>}
-                <Button onClick={saveSettings} disabled={isSavingSettings}>
+                <Button onClick={saveSettings} disabled={isSavingSettings} className="w-full sm:w-auto">
                   {isSavingSettings ? "Salvando..." : "Salvar configuracoes"}
                 </Button>
               </div>
@@ -1148,7 +1150,7 @@ export function FollowupDashboard() {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <Button
                       variant="outline"
                       onClick={testWebhook}
@@ -1185,7 +1187,7 @@ export function FollowupDashboard() {
                   <CardDescription>Altere a senha de acesso ao painel</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-0.5">
                       <Label>Senha de acesso</Label>
                       <p className="text-sm text-muted-foreground">
@@ -1200,7 +1202,7 @@ export function FollowupDashboard() {
                       }
                     }}>
                       <DialogTrigger asChild>
-                        <Button variant="outline">Alterar senha</Button>
+                        <Button variant="outline" className="w-full sm:w-auto">Alterar senha</Button>
                       </DialogTrigger>
                       <DialogContent className="bg-card border-border">
                         <DialogHeader>
