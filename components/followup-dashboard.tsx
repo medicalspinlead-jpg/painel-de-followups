@@ -49,6 +49,19 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { useAuth } from "@/lib/auth-context"
 import { LogOut, BookText } from "lucide-react"
 
+// Histórico de follow-ups enviados (origem: FollowupLog)
+type FollowupLogEntry = {
+  id: string
+  messageId: string
+  targetDate: string
+  scheduled: string
+  status: string
+  sentAt: string
+  dayOffset: number | null
+  order: number | null
+  content: string | null
+}
+
 // Helper para extrair JSON e lançar erro com a mensagem do backend
 async function parseResponse<T>(res: Response): Promise<T> {
   const json = await res.json().catch(() => ({}))
@@ -81,6 +94,10 @@ export function FollowupDashboard() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [isLeadDetailOpen, setIsLeadDetailOpen] = useState(false)
+  // Histórico de follow-ups enviados ao lead selecionado
+  const [leadLogs, setLeadLogs] = useState<FollowupLogEntry[]>([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsError, setLogsError] = useState<string | null>(null)
   const [editingMessage, setEditingMessage] = useState<FollowupMessage | null>(null)
   const [webhookTestStatus, setWebhookTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
   // Número de telefone de teste (apenas em memória, não persistido no banco)
@@ -194,9 +211,22 @@ export function FollowupDashboard() {
     }
   }
 
-  const openLeadDetail = (lead: Lead) => {
+  const openLeadDetail = async (lead: Lead) => {
     setSelectedLead(lead)
     setIsLeadDetailOpen(true)
+    setLeadLogs([])
+    setLogsError(null)
+    setLogsLoading(true)
+    try {
+      const logs = await apiFetch(`/api/leads/${lead.id}/logs`).then((r) =>
+        parseResponse<FollowupLogEntry[]>(r),
+      )
+      setLeadLogs(logs)
+    } catch (err) {
+      setLogsError(err instanceof Error ? err.message : "Erro ao carregar histórico")
+    } finally {
+      setLogsLoading(false)
+    }
   }
 
   const updateLeadStage = async (id: string, stage: LeadStage) => {
@@ -748,6 +778,61 @@ export function FollowupDashboard() {
                           <p className="text-sm text-muted-foreground">Nenhuma mensagem configurada para esta categoria.</p>
                         )}
                       </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <h4 className="text-sm font-medium mb-2">Historico de Follow-ups Enviados</h4>
+                      {logsLoading ? (
+                        <p className="text-sm text-muted-foreground">Carregando historico...</p>
+                      ) : logsError ? (
+                        <p className="text-sm text-destructive">{logsError}</p>
+                      ) : leadLogs.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nenhum follow-up enviado ate o momento.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {leadLogs.map((log) => (
+                            <div key={log.id} className="flex items-start gap-3 p-2 bg-muted/50 rounded-md text-sm">
+                              <span
+                                className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${
+                                  log.status === "delivered" ? "bg-emerald-500" : "bg-destructive"
+                                }`}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                  <span className="font-medium">
+                                    {log.dayOffset === null
+                                      ? "Follow-up"
+                                      : log.dayOffset === 0
+                                        ? "Imediato"
+                                        : `Dia ${log.dayOffset}`}
+                                  </span>
+                                  <span className="text-muted-foreground">as {log.scheduled}</span>
+                                  <Badge
+                                    variant="secondary"
+                                    className={`text-xs ${
+                                      log.status === "delivered" ? "text-emerald-500" : "text-destructive"
+                                    }`}
+                                  >
+                                    {log.status === "delivered" ? "Entregue" : log.status}
+                                  </Badge>
+                                </div>
+                                {log.content && (
+                                  <p className="text-muted-foreground mt-1 line-clamp-2">{log.content}</p>
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {new Date(log.sentAt).toLocaleString("pt-BR", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
