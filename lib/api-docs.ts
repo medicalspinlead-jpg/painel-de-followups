@@ -244,6 +244,59 @@ export const API_GROUPS: EndpointGroup[] = [
         },
       },
       {
+        id: "leads-by-phone",
+        method: "GET",
+        path: "/api/leads/by-phone",
+        title: "Buscar lead por telefone (query)",
+        description:
+          "Busca exata por telefone. Retorna apenas 1 lead cujo telefone seja idêntico ao parâmetro (sem normalização ou correspondência parcial). Retorna 400 se o telefone faltar e 404 se nada bater exatamente.",
+        queryParams: [
+          {
+            name: "phone",
+            type: "string",
+            required: true,
+            description:
+              "Telefone exato a buscar. Precisa ser idêntico ao salvo no banco, incluindo formatação/máscara.",
+          },
+        ],
+        exampleResponse: {
+          data: {
+            id: "lead_1",
+            name: "Maria Silva",
+            email: "maria@email.com",
+            phone: "+5511999999999",
+            stage: "dia1",
+            category: { id: "cat_123", name: "Avaliação Estética", color: "bg-blue-500" },
+          },
+        },
+      },
+      {
+        id: "leads-phone-path",
+        method: "GET",
+        path: "/api/leads/phone/:phone",
+        title: "Buscar lead por telefone (path)",
+        description:
+          "Variante RESTful da busca exata por telefone, com o telefone no caminho da URL (faça o URL-encode de espaços e símbolos). Mesma regra: correspondência exata, 1 resultado, 404 se não houver correspondência.",
+        pathParams: [
+          {
+            name: "phone",
+            type: "string",
+            required: true,
+            description: "Telefone exato (URL-encoded) a buscar, idêntico ao salvo no banco.",
+          },
+        ],
+        exampleResponse: {
+          data: {
+            id: "lead_1",
+            name: "Maria Silva",
+            email: "maria@email.com",
+            phone: "+5511999999999",
+            stage: "dia1",
+            category: { id: "cat_123", name: "Avaliação Estética", color: "bg-blue-500" },
+          },
+        },
+      },
+      {
         id: "leads-create",
         method: "POST",
         path: "/api/leads",
