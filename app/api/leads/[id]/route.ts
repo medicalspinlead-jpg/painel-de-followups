@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiKey } from "@/lib/api-auth"
+import { DAILY_STAGES } from "@/lib/followup-schedule"
 
 const VALID_STAGES = ["desqualificado", "dia1", "dia2", "dia3", "aguarda_7_dias"]
 
@@ -39,6 +40,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         { status: 400 },
       )
     }
+
+    // Reativação manual: ao tirar um lead de "desqualificado" e movê-lo para uma
+    // etapa diária (dia1/2/3), reinicia o ciclo a partir de agora. Sem isso, a
+    // âncora antiga (cycleStartedAt/createdAt) deixaria a data-alvo no passado e
+    // nenhuma mensagem seria enviada. Também limpa waitingSince.
+    let cycleReset: { cycleStartedAt: Date; waitingSince: null } | undefined
+    if (body.stage !== undefined) {
+      const current = await prisma.lead.findUnique({
+        where: { id },
+        select: { stage: true },
+      })
+      if (
+        current?.stage === "desqualificado" &&
+        (DAILY_STAGES as string[]).includes(body.stage)
+      ) {
+        cycleReset = { cycleStartedAt: new Date(), waitingSince: null }
+      }
+    }
+
     const lead = await prisma.lead.update({
       where: { id },
       data: {
@@ -48,6 +68,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         ...(body.categoryId !== undefined && { categoryId: body.categoryId }),
         ...(body.stage !== undefined && { stage: body.stage }),
         ...(body.notes !== undefined && { notes: body.notes }),
+        ...(cycleReset ?? {}),
       },
     })
     return NextResponse.json({ data: lead })

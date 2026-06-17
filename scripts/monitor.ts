@@ -1,7 +1,16 @@
 /**
- * Monitor de terminal: mostra a contagem regressiva até o próximo envio de
- * webhook para cada lead ativo. Atualiza a cada segundo (e relê o banco a cada
- * 30s) para você ter certeza visual de que o agendamento está funcionando.
+ * Monitor de terminal: visão completa de TUDO que acontece internamente no
+ * motor de follow-up. Atualiza a cada segundo (e relê o banco a cada 3s) para
+ * você ter certeza visual de que o agendamento está funcionando.
+ *
+ * Mostra:
+ *   - Status da configuração (webhook, fins de semana, horário de Brasília).
+ *   - Resumo da quantidade de leads por etapa.
+ *   - Próximos envios agendados (dia1 · dia2 · dia3) com datas e contagem regressiva.
+ *   - Leads aguardando 7 dias úteis (com data de reinício do ciclo).
+ *   - Leads desqualificados (parados — nenhuma ação automática).
+ *   - Leads sem categoria / sem mensagens ativas (por que não disparam).
+ *   - Últimos envios registrados (FollowupLog).
  *
  * Uso:
  *   npm run monitor
@@ -9,101 +18,19 @@
  * Requer DATABASE_URL no ambiente (mesma do app).
  */
 import { prisma } from "@/lib/prisma"
-import type { LeadStage } from "@prisma/client"
+import { formatBrazilTimestamp, getBrazilTimeParts } from "@/lib/timezone"
 import {
-  nextDispatchForLead,
-  DAILY_STAGES,
-  restartDateAfterWait,
-  type ScheduleMessage,
-} from "@/lib/followup-schedule"
-import { formatBrazilTimestamp } from "@/lib/timezone"
+  loadMonitorData,
+  STAGE_ORDER,
+  STAGE_LABEL,
+  type MonitorData,
+} from "@/lib/monitor-data"
 
 const REFRESH_DB_MS = 3_000
 const TICK_MS = 1_000
 
-type Row = {
-  leadId: string
-  leadName: string
-  stage: string
-  categoryName: string
-  at: Date
-  message: ScheduleMessage
-  targetDay: number
-}
-
-type WaitingRow = {
-  leadId: string
-  leadName: string
-  categoryName: string
-  /** Quando o lead entrou na etapa de espera. */
-  since: Date
-  /** Data (YYYY-MM-DD, Brasília) em que o ciclo reinicia em dia1. */
-  restartDate: string
-}
-
-type MonitorData = {
-  rows: Row[]
-  waiting: WaitingRow[]
-}
-
 async function loadRows(): Promise<MonitorData> {
-  const now = new Date()
-  const settings = await prisma.settings.findUnique({ where: { id: "default" } })
-  const sendWeekends = settings?.sendWeekends ?? false
-  const leads = await prisma.lead.findMany({
-    where: {
-      stage: { in: [...DAILY_STAGES, "aguarda_7_dias"] as LeadStage[] },
-      categoryId: { not: null },
-    },
-    include: { category: { include: { messages: { where: { active: true } } } } },
-  })
-
-  const rows: Row[] = []
-  const waiting: WaitingRow[] = []
-  for (const lead of leads) {
-    if (!lead.category || !lead.category.active) continue
-
-    if (lead.stage === "aguarda_7_dias") {
-      const since = lead.waitingSince ?? lead.updatedAt
-      waiting.push({
-        leadId: lead.id,
-        leadName: lead.name,
-        categoryName: lead.category.name,
-        since,
-        restartDate: restartDateAfterWait(since),
-      })
-      continue
-    }
-
-    const next = nextDispatchForLead({
-      now,
-      // Âncora do ciclo atual (recomeça a cada reinício).
-      createdAt: lead.cycleStartedAt ?? lead.createdAt,
-      stage: lead.stage,
-      sendWeekends,
-      messages: lead.category.messages.map((m) => ({
-        id: m.id,
-        order: m.order,
-        dayOffset: m.dayOffset,
-        time: m.time,
-        content: m.message,
-        active: m.active,
-      })),
-    })
-    if (!next) continue
-    rows.push({
-      leadId: lead.id,
-      leadName: lead.name,
-      stage: lead.stage,
-      categoryName: lead.category.name,
-      at: next.at,
-      message: next.message,
-      targetDay: next.targetDay,
-    })
-  }
-  rows.sort((a, b) => a.at.getTime() - b.at.getTime())
-  waiting.sort((a, b) => a.since.getTime() - b.since.getTime())
-  return { rows, waiting }
+  return loadMonitorData()
 }
 
 function formatCountdown(ms: number): string {
@@ -128,33 +55,60 @@ function formatElapsed(ms: number): string {
   return `${m}min`
 }
 
-function render({ rows, waiting }: MonitorData) {
+function render(data: MonitorData) {
+  const { settings, counts, totalLeads, rows, waiting, disqualified, idle, logs } = data
   // Limpa a tela e move o cursor para o topo
   process.stdout.write("\x1b[2J\x1b[H")
   const now = new Date()
+  const brazil = getBrazilTimeParts(now)
+  const isWeekend = brazil.weekday === 0 || brazil.weekday === 6
+
   console.log("=".repeat(72))
   console.log(`  MONITOR DE FOLLOW-UP  ·  agora: ${formatBrazilTimestamp(now)} (Brasília)`)
   console.log("=".repeat(72))
 
-  console.log("\n  PRÓXIMOS ENVIOS (dia1 · dia2 · dia3)")
+  // ---- Status da configuração ----
+  const webhookStatus = settings.webhookEnabled && settings.webhookUrl
+    ? "ATIVO"
+    : "DESABILITADO"
+  const weekendStatus = settings.sendWeekends ? "sim" : "não"
+  const pausedNow = isWeekend && !settings.sendWeekends ? "  (PAUSADO: fim de semana)" : ""
+  console.log("\n  CONFIGURAÇÃO")
+  console.log(`     webhook:            ${webhookStatus}`)
+  console.log(`     envia fins de semana: ${weekendStatus}${pausedNow}`)
+  console.log(`     dia da semana:      ${["dom", "seg", "ter", "qua", "qui", "sex", "sáb"][brazil.weekday]}`)
+
+  // ---- Resumo por etapa ----
+  console.log("\n  RESUMO POR ETAPA")
+  const summary = STAGE_ORDER.map((s) => `${STAGE_LABEL[s]}: ${counts[s] ?? 0}`).join("   ·   ")
+  console.log(`     ${summary}`)
+  console.log(`     TOTAL de leads: ${totalLeads}`)
+
+  console.log("\n" + "-".repeat(72))
+
+  // ---- Próximos envios ----
+  console.log(`\n  PRÓXIMOS ENVIOS (dia1 · dia2 · dia3 · ${rows.length})`)
   if (rows.length === 0) {
     console.log("\n  Nenhum lead com envio agendado no momento.")
-    console.log("  (Crie um lead em uma categoria com mensagens ativas para ver a contagem.)")
   } else {
     for (const row of rows) {
       const ms = row.at.getTime() - now.getTime()
       const countdown = formatCountdown(ms)
       const marker = ms <= 0 ? "►" : "·"
-      console.log(
-        `\n  ${marker} ${row.leadName}  [${row.stage}]  → ${row.categoryName}`,
-      )
+      const msg = row.message.content
+      console.log(`\n  ${marker} ${row.leadName}  [${STAGE_LABEL[row.stage] ?? row.stage}]  → ${row.categoryName}`)
+      console.log(`     criado em:     ${formatBrazilTimestamp(row.createdAt)}`)
+      console.log(`     ciclo desde:   ${formatBrazilTimestamp(row.cycleStartedAt)}`)
+      console.log(`     data-alvo:     ${row.targetDate}  às ${row.message.time}`)
       console.log(`     próximo envio: ${formatBrazilTimestamp(row.at)} (Brasília)`)
       console.log(`     faltam:        ${countdown}`)
-      console.log(`     mensagem:      "${row.message.content.slice(0, 50)}${row.message.content.length > 50 ? "..." : ""}"`)
+      console.log(`     mensagem:      "${msg.slice(0, 50)}${msg.length > 50 ? "..." : ""}"`)
     }
   }
 
   console.log("\n" + "-".repeat(72))
+
+  // ---- Aguardando 7 dias ----
   console.log(`\n  AGUARDANDO 7 DIAS  (sequência diária concluída · ${waiting.length})`)
   if (waiting.length === 0) {
     console.log("\n  Nenhum lead nesta etapa no momento.")
@@ -169,11 +123,50 @@ function render({ rows, waiting }: MonitorData) {
   }
 
   console.log("\n" + "-".repeat(72))
-  console.log("  Atualiza a cada 1s · relê o banco a cada 30s · Ctrl+C para sair")
+
+  // ---- Desqualificados (parados) ----
+  console.log(`\n  DESQUALIFICADOS  (sem ação automática · ${disqualified.length})`)
+  if (disqualified.length === 0) {
+    console.log("\n  Nenhum lead desqualificado.")
+  } else {
+    for (const row of disqualified) {
+      console.log(`\n  ✖ ${row.leadName}  → ${row.categoryName}`)
+      console.log(`     ${row.reason}`)
+    }
+  }
+
+  // ---- Sem agendamento (motivos) ----
+  if (idle.length > 0) {
+    console.log("\n" + "-".repeat(72))
+    console.log(`\n  SEM AGENDAMENTO  (não disparam agora · ${idle.length})`)
+    for (const row of idle) {
+      console.log(`\n  ⚠ ${row.leadName}  [${STAGE_LABEL[row.stage] ?? row.stage}]  → ${row.categoryName}`)
+      console.log(`     motivo: ${row.reason}`)
+    }
+  }
+
+  console.log("\n" + "-".repeat(72))
+
+  // ---- Últimos envios registrados ----
+  console.log(`\n  ÚLTIMOS ENVIOS REGISTRADOS  (${logs.length})`)
+  if (logs.length === 0) {
+    console.log("\n  Nenhum envio registrado ainda.")
+  } else {
+    for (const log of logs) {
+      const statusMark = log.status === "delivered" ? "✓" : log.status === "pending" ? "…" : "✗"
+      console.log(
+        `\n  ${statusMark} ${formatBrazilTimestamp(log.sentAt)}  ${log.leadName} → ${log.categoryName}`,
+      )
+      console.log(`     alvo: ${log.targetDate} às ${log.scheduled}  ·  status: ${log.status}`)
+    }
+  }
+
+  console.log("\n" + "-".repeat(72))
+  console.log("  Atualiza a cada 1s · relê o banco a cada 3s · Ctrl+C para sair")
 }
 
 async function main() {
-  let data: MonitorData = { rows: [], waiting: [] }
+  let data: MonitorData
   try {
     data = await loadRows()
   } catch (err) {

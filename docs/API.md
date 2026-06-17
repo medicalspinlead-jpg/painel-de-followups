@@ -98,6 +98,24 @@ Cria um lead. Ao criar, se a categoria tiver mensagens ativas com `dayOffset = 0
 ```
 - `name` é obrigatório. `stage` padrão é `dia1`.
 
+### `GET /api/leads/by-phone?phone=<telefone>`
+Busca **exata** por telefone. Retorna **apenas 1** lead cujo telefone seja **idêntico** ao parâmetro informado (sem normalização, sem remover máscara, sem correspondência parcial). O `phone` é obrigatório (`400` se ausente) e retorna `404` quando nada bate exatamente.
+
+```bash
+curl "https://seu-dominio/api/leads/by-phone?phone=(11)%2099999-9999" \
+  -H "Authorization: Bearer <API_KEY>"
+```
+
+### `GET /api/leads/phone/[phone]`
+Variante RESTful da busca exata, com o telefone no caminho da URL (lembre de fazer o *URL-encode* de caracteres como espaços e parênteses). Mesma regra: correspondência exata, **1** resultado, `404` se não houver correspondência.
+
+```bash
+curl "https://seu-dominio/api/leads/phone/%2B5511999999999" \
+  -H "Authorization: Bearer <API_KEY>"
+```
+
+> Como a busca é exata, o telefone enviado precisa ser exatamente igual ao salvo no banco (mesma formatação/máscara). Para encontrar um lead salvo como `(11) 99999-9999`, envie esse mesmo valor — não `5511999999999`.
+
 ### `GET /api/leads/[id]`
 Detalhes de um lead com a categoria.
 
