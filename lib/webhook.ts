@@ -7,7 +7,7 @@ const SETTINGS_ID = "default"
 export type WebhookEvent = {
   event: "followup.scheduled"
   timestamp: string
-  lead: { id: string; name: string; email: string; phone: string; stage: string }
+  lead: { id: string; name: string; email: string; pipedriveId: string | null; phone: string; stage: string }
   category: { id: string; name: string }
   message: { id: string; order: number; dayOffset: number; time: string; content: string }
 }
@@ -70,6 +70,7 @@ export async function dispatchImmediateFollowups(leadId: string): Promise<number
         id: lead.id,
         name: lead.name,
         email: lead.email,
+        pipedriveId: lead.pipedriveId,
         phone: lead.phone,
         stage: lead.stage,
       },
