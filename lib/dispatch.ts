@@ -132,8 +132,20 @@ export async function runDispatch(): Promise<DispatchResult> {
     // tem prioridade do dia.
     const ordered = [...due.messages].sort((a, b) => a.time.localeCompare(b.time))
 
+    // TODAS as mensagens ativas da etapa (dia atual), ordenadas por horário.
+    // Define a posição do follow-up: cada etapa pode ter até 2 (1º e 2º). Usamos
+    // o conjunto completo da etapa — não só as devidas agora — para que o índice
+    // do 2º follow-up continue sendo 2 mesmo se o 1º já foi enviado antes.
+    const stageOrdered = lead.category.messages
+      .filter((m) => m.dayOffset === due.targetDay)
+      .sort((a, b) => a.time.localeCompare(b.time))
+    const followupTotal = stageOrdered.length
+
     for (const message of ordered) {
       base.matched++
+
+      // Posição (1 ou 2) deste follow-up dentro da etapa, por ordem de horário.
+      const followupIndex = stageOrdered.findIndex((m) => m.id === message.id) + 1
 
       // Idempotência. No fluxo normal, checamos antes para não gerar log de
       // erro do Prisma quando a mensagem já foi enviada hoje.
@@ -173,6 +185,7 @@ export async function runDispatch(): Promise<DispatchResult> {
         timestamp: brazil.iso,
         lead: {
           id: lead.id,
+          pipedriveId: lead.pipedriveId,
           name: lead.name,
           email: lead.email,
           phone: lead.phone,
@@ -185,6 +198,11 @@ export async function runDispatch(): Promise<DispatchResult> {
           dayOffset: message.dayOffset,
           time: message.time,
           content: renderTemplate(message.content, lead),
+        },
+        followup: {
+          index: followupIndex,
+          total: followupTotal,
+          isLast: followupIndex === followupTotal,
         },
       }
 
@@ -249,6 +267,7 @@ export async function runDispatch(): Promise<DispatchResult> {
   // indefinidamente.
   const waitingLeads = await prisma.lead.findMany({
     where: { stage: "aguarda_7_dias" as LeadStage, categoryId: { not: null } },
+    include: { category: true },
   })
 
   for (const lead of waitingLeads) {
@@ -265,6 +284,26 @@ export async function runDispatch(): Promise<DispatchResult> {
       },
     })
     base.restarted++
+
+    // Notifica o webhook de que o lead saiu de "aguarda_7_dias" e reiniciou o
+    // ciclo voltando para "dia1".
+    if (lead.category) {
+      const restartEvent: WebhookEvent = {
+        event: "lead.cycle_restarted",
+        timestamp: brazil.iso,
+        lead: {
+          id: lead.id,
+          pipedriveId: lead.pipedriveId,
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          stage: "dia1",
+        },
+        category: { id: lead.category.id, name: lead.category.name },
+        transition: { from: "aguarda_7_dias", to: "dia1" },
+      }
+      await sendWebhookEvent(settings.webhookUrl, settings.webhookSecret, restartEvent)
+    }
   }
 
   return base

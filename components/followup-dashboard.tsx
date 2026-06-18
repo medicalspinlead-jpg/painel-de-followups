@@ -411,6 +411,7 @@ export function FollowupDashboard() {
       test: true,
       lead: {
         id: "test",
+        pipedriveId: "12345",
         name: "Lead de Teste",
         email: "teste@exemplo.com",
         phone: testPhone.trim() || "(11) 99999-9999",
@@ -418,6 +419,7 @@ export function FollowupDashboard() {
       },
       category: { id: "test", name: "Categoria de Teste" },
       message: { id: "test", order: 1, dayOffset: 1, time: settings.defaultFollowupTime, content: "Mensagem de teste do webhook" },
+      followup: { index: 1, total: 2, isLast: false },
     }
     try {
       const res = await fetch(settings.webhookUrl, {
