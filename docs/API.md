@@ -125,8 +125,9 @@ Atualiza qualquer campo, incluindo a mudança de etapa (`stage`).
 ### `DELETE /api/leads/[id]`
 Remove o lead.
 
-### Etapas válidas (`stage`)
-`desqualificado` · `dia1` · `dia2` · `dia3` · `aguarda_7_dias`
+### Status válidos (`stage`)
+`ativo` · `aguardando` · `parado`
+(valores legados ainda aceitos: `desqualificado` · `dia1` · `dia2` · `dia3` · `aguarda_7_dias`)
 
 ---
 
@@ -162,7 +163,7 @@ Verifica quais follow-ups correspondem à data/horário atuais e envia os evento
 **Lógica de correspondência:**
 1. O webhook precisa estar habilitado (`webhookEnabled`) e ter `webhookUrl`.
 2. Finais de semana são pulados quando `sendWeekends` é `false`.
-3. A etapa do lead é mapeada para o `dayOffset` da mensagem: `dia1 → 1`, `dia2 → 2`, `dia3 → 3`. Leads em `desqualificado` e `aguarda_7_dias` são ignorados.
+3. Cada categoria define os seus próprios dias pelo `dayOffset` das mensagens. Apenas leads `ativo` recebem envios; leads `parado` e `aguardando` são ignorados.
 4. A **data alvo** é a data de cadastro do lead (`createdAt`) + `dayOffset` dias. A mensagem só dispara no dia exato — não se repete todos os dias.
 5. Envia a mensagem ativa cujo `dayOffset` e `time` (`HH:mm`) batem com a data/horário atuais.
 
@@ -263,7 +264,7 @@ Os testes em `lib/followup-schedule.test.ts` cobrem:
 | Sábado/domingo com `sendWeekends=false` | não envia |
 | Sábado com `sendWeekends=true` | **envia** |
 | Mensagem inativa | não envia |
-| Etapa não diária (ex.: `desqualificado`) | não envia |
+| Status não ativo (ex.: `parado`, `aguardando`) | não envia |
 | Virada de dia no fuso de Brasília (UTC vs BRT) | **envia** no horário certo |
 
 Como o `dispatch` real (`/api/followups/dispatch`) usa a mesma função, um teste verde garante que o disparo por dias funciona em produção — basta o cron rodar a cada minuto.

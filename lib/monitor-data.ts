@@ -114,12 +114,12 @@ export async function loadMonitorData(): Promise<MonitorData> {
     const categoryName = lead.category?.name ?? "—"
     const status = normalizeStage(lead.stage)
 
-    // Desqualificado: nenhuma ação automática até ser movido manualmente.
-    if (status === "desqualificado") {
+    // Parado: nenhuma ação automática até ser movido manualmente.
+    if (status === "parado") {
       disqualified.push({
         leadId: lead.id,
         leadName: lead.name,
-        stage: "desqualificado",
+        stage: "parado",
         categoryName,
         reason: "Parado — só volta ao fluxo se mudar de status manualmente",
       })

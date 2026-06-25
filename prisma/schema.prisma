@@ -7,17 +7,19 @@ datasource db {
 }
 
 enum LeadStage {
-  desqualificado
   // Valores legados (mantidos para compatibilidade com bancos existentes;
-  // migrados para "ativo"/"aguardando" pela migração idempotente do boot).
+  // migrados para os status atuais pela migração idempotente do boot).
+  desqualificado
   dia1
   dia2
   dia3
   aguarda_7_dias
   // Status atuais: "ativo" = recebendo a sequência da categoria;
-  // "aguardando" = na janela de espera antes de reiniciar o ciclo.
+  // "aguardando" = na janela de espera antes de reiniciar o ciclo;
+  // "parado" = sem ação automática (antigo "desqualificado").
   ativo
   aguardando
+  parado
 }
 
 model Category {

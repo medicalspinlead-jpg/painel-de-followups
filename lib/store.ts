@@ -21,8 +21,8 @@ export type FollowupMessage = {
 
 // Status do lead. Valores legados (dia1/dia2/dia3/aguarda_7_dias) ainda podem
 // chegar de bancos antigos e são normalizados para os três status atuais.
-export type LeadStatus = 'ativo' | 'aguardando' | 'desqualificado'
-export type LeadStage = LeadStatus | 'dia1' | 'dia2' | 'dia3' | 'aguarda_7_dias'
+export type LeadStatus = 'ativo' | 'aguardando' | 'parado'
+export type LeadStage = LeadStatus | 'desqualificado' | 'dia1' | 'dia2' | 'dia3' | 'aguarda_7_dias'
 
 export type Lead = {
   id: string
@@ -100,7 +100,7 @@ export function generateId(): string {
 
 /** Normaliza um status legado para um dos três status atuais. */
 export function normalizeStatus(stage: LeadStage): LeadStatus {
-  if (stage === 'desqualificado') return 'desqualificado'
+  if (stage === 'parado' || stage === 'desqualificado') return 'parado'
   if (stage === 'aguarda_7_dias' || stage === 'aguardando') return 'aguardando'
   return 'ativo'
 }
@@ -109,7 +109,7 @@ export function getStatusLabel(stage: LeadStage): string {
   const labels: Record<LeadStatus, string> = {
     ativo: 'Ativo',
     aguardando: 'Aguardando',
-    desqualificado: 'Desqualificado',
+    parado: 'Parado',
   }
   return labels[normalizeStatus(stage)]
 }
@@ -118,7 +118,7 @@ export function getStatusColor(stage: LeadStage): string {
   const colors: Record<LeadStatus, string> = {
     ativo: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
     aguardando: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-    desqualificado: 'bg-red-500/20 text-red-400 border-red-500/30',
+    parado: 'bg-red-500/20 text-red-400 border-red-500/30',
   }
   return colors[normalizeStatus(stage)]
 }

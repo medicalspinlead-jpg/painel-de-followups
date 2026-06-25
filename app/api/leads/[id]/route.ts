@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiKey } from "@/lib/api-auth"
 import { isActiveStage } from "@/lib/followup-schedule"
 
-const VALID_STAGES = ["desqualificado", "ativo", "aguardando", "dia1", "dia2", "dia3", "aguarda_7_dias"]
+const VALID_STAGES = ["parado", "ativo", "aguardando", "desqualificado", "dia1", "dia2", "dia3", "aguarda_7_dias"]
 
 // GET /api/leads/[id] - detalhes de um lead
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -41,7 +41,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       )
     }
 
-    // Reativação manual: ao mover um lead para "ativo" vindo de "desqualificado"
+    // Reativação manual: ao mover um lead para "ativo" vindo de "parado"
     // ou "aguardando", reinicia o ciclo a partir de agora. Sem isso, a âncora
     // antiga (cycleStartedAt/createdAt) deixaria as datas-alvo no passado e
     // nenhuma mensagem seria enviada. Também limpa waitingSince.

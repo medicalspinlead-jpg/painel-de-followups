@@ -58,9 +58,12 @@ export async function ensureFollowupLogTable(): Promise<void> {
   `)
 
   // Novos status do lead. Em PostgreSQL, ADD VALUE é idempotente com IF NOT EXISTS.
+  // Cada ADD VALUE precisa ser commitado antes de ser usado num UPDATE, por isso
+  // ficam em statements separados.
   try {
     await prisma.$executeRawUnsafe(`ALTER TYPE "LeadStage" ADD VALUE IF NOT EXISTS 'ativo';`)
     await prisma.$executeRawUnsafe(`ALTER TYPE "LeadStage" ADD VALUE IF NOT EXISTS 'aguardando';`)
+    await prisma.$executeRawUnsafe(`ALTER TYPE "LeadStage" ADD VALUE IF NOT EXISTS 'parado';`)
   } catch {
     // Tipo pode não existir como enum em todos os ambientes; ignorável.
   }
@@ -71,6 +74,9 @@ export async function ensureFollowupLogTable(): Promise<void> {
   `)
   await prisma.$executeRawUnsafe(`
     UPDATE "leads" SET "stage" = 'aguardando' WHERE "stage" = 'aguarda_7_dias';
+  `)
+  await prisma.$executeRawUnsafe(`
+    UPDATE "leads" SET "stage" = 'parado' WHERE "stage" = 'desqualificado';
   `)
 
   ensured = true

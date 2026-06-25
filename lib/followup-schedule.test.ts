@@ -43,13 +43,16 @@ test("normalizeStage converte valores legados", () => {
   assert.equal(normalizeStage("ativo"), "ativo")
   assert.equal(normalizeStage("aguarda_7_dias"), "aguardando")
   assert.equal(normalizeStage("aguardando"), "aguardando")
-  assert.equal(normalizeStage("desqualificado"), "desqualificado")
+  assert.equal(normalizeStage("parado"), "parado")
+  // valor legado é normalizado para "parado"
+  assert.equal(normalizeStage("desqualificado"), "parado")
 })
 
 test("isActiveStage reconhece status ativos (inclui legados)", () => {
   assert.equal(isActiveStage("ativo"), true)
   assert.equal(isActiveStage("dia2"), true)
   assert.equal(isActiveStage("aguardando"), false)
+  assert.equal(isActiveStage("parado"), false)
   assert.equal(isActiveStage("desqualificado"), false)
 })
 

@@ -317,14 +317,14 @@ export function MonitorView() {
         )}
       </section>
 
-      {/* Desqualificados */}
+      {/* Parados */}
       <section className="rounded-lg border border-border bg-card p-4">
         <h2 className="mb-3 text-sm font-semibold text-card-foreground">
-          Desqualificados (sem ação automática){" "}
+          Parados (sem ação automática){" "}
           <span className="text-muted-foreground">({data.disqualified.length})</span>
         </h2>
         {data.disqualified.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nenhum lead desqualificado.</p>
+          <p className="text-sm text-muted-foreground">Nenhum lead parado.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {data.disqualified.map((row) => (

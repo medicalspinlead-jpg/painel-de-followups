@@ -9,13 +9,13 @@ import { getBrazilTimeParts, brazilWallTimeToUtc } from "@/lib/timezone"
 // reinício do ciclo também é por categoria (`waitDays`, padrão 7).
 //
 // O lead tem apenas três status: "ativo" (recebendo a sequência), "aguardando"
-// (na janela de espera) e "desqualificado" (parado).
+// (na janela de espera) e "parado" (sem ação automática).
 // ----------------------------------------------------------------------------
 
 /** Status que recebem a sequência diária de mensagens. */
 export const ACTIVE_STAGE = "ativo"
 export const WAITING_STAGE = "aguardando"
-export const DISQUALIFIED_STAGE = "desqualificado"
+export const STOPPED_STAGE = "parado"
 
 /** Espera padrão (em dias) quando a categoria não define um valor próprio. */
 export const DEFAULT_WAIT_DAYS = 7
@@ -24,8 +24,8 @@ export const DEFAULT_WAIT_DAYS = 7
  * Normaliza valores legados de etapa para o novo modelo de status.
  * Bancos existentes podem ter leads em dia1/dia2/dia3/aguarda_7_dias.
  */
-export function normalizeStage(stage: string): "ativo" | "aguardando" | "desqualificado" {
-  if (stage === "desqualificado") return "desqualificado"
+export function normalizeStage(stage: string): "ativo" | "aguardando" | "parado" {
+  if (stage === "parado" || stage === "desqualificado") return "parado"
   if (stage === "aguarda_7_dias" || stage === "aguardando") return "aguardando"
   // dia1/dia2/dia3/ativo e qualquer outro → ativo
   return "ativo"

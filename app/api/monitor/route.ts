@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
  * GET /api/monitor
  *
  * Snapshot completo de TUDO que acontece internamente no motor de follow-up
- * (etapas, datas, próximos envios, esperas, desqualificados, logs).
+ * (etapas, datas, próximos envios, esperas, parados, logs).
  *
  * Protegido por API key (Authorization: Bearer <API_KEY>). É o backend da
  * rota web oculta /painel-interno/monitor.

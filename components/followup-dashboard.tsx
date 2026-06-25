@@ -471,7 +471,7 @@ export function FollowupDashboard() {
 
   // Calcula o rótulo da "etapa" de um lead. Para leads ativos a etapa é dinâmica
   // e depende da configuração de dias da própria categoria; para os demais usa
-  // o status (Aguardando / Desqualificado).
+  // o status (Aguardando / Parado).
   const getLeadStageDisplay = (lead: Lead): string => {
     const status = normalizeStatus(lead.stage)
     if (status !== "ativo") return getStatusLabel(lead.stage)
@@ -724,7 +724,7 @@ export function FollowupDashboard() {
                               <SelectContent className="bg-popover border-border">
                                 <SelectItem value="ativo">Ativo</SelectItem>
                                 <SelectItem value="aguardando">Aguardando</SelectItem>
-                                <SelectItem value="desqualificado">Desqualificado</SelectItem>
+                                <SelectItem value="parado">Parado</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>

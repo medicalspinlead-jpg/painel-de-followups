@@ -232,7 +232,7 @@ export const API_GROUPS: EndpointGroup[] = [
         title: "Listar leads",
         description: "Lista leads com filtros opcionais por etapa e categoria.",
         queryParams: [
-          { name: "stage", type: "string", description: "Status: ativo, aguardando ou desqualificado." },
+          { name: "stage", type: "string", description: "Status: ativo, aguardando ou parado." },
           { name: "categoryId", type: "string", description: "Filtra por categoria." },
         ],
         exampleResponse: {
@@ -348,7 +348,7 @@ export const API_GROUPS: EndpointGroup[] = [
           { name: "email", type: "string", description: "Novo e-mail." },
           { name: "phone", type: "string", description: "Novo telefone." },
           { name: "categoryId", type: "string", description: "Nova categoria." },
-          { name: "stage", type: "string", description: "Novo status: ativo, aguardando ou desqualificado." },
+          { name: "stage", type: "string", description: "Novo status: ativo, aguardando ou parado." },
           { name: "notes", type: "string", description: "Observações." },
         ],
         exampleBody: { stage: "aguardando" },

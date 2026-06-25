@@ -5,13 +5,14 @@
 // Não há mais etapas fixas dia1/dia2/dia3: o lead tem apenas três status. O
 // "dia" atual de um lead ativo é calculado pela configuração da sua categoria.
 
-export const STAGE_ORDER = ["ativo", "aguardando", "desqualificado"] as const
+export const STAGE_ORDER = ["ativo", "aguardando", "parado"] as const
 
 export const STAGE_LABEL: Record<string, string> = {
   ativo: "Ativo",
   aguardando: "Aguardando",
-  desqualificado: "Desqualificado",
+  parado: "Parado",
   // Rótulos legados (caso algum lead ainda não tenha sido migrado).
+  desqualificado: "Parado",
   dia1: "Ativo",
   dia2: "Ativo",
   dia3: "Ativo",

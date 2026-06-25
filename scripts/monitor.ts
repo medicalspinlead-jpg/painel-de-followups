@@ -8,7 +8,7 @@
  *   - Resumo da quantidade de leads por etapa.
  *   - Próximos envios agendados (dia1 · dia2 · dia3) com datas e contagem regressiva.
  *   - Leads aguardando 7 dias úteis (com data de reinício do ciclo).
- *   - Leads desqualificados (parados — nenhuma ação automática).
+ *   - Leads parados (nenhuma ação automática).
  *   - Leads sem categoria / sem mensagens ativas (por que não disparam).
  *   - Últimos envios registrados (FollowupLog).
  *
@@ -124,10 +124,10 @@ function render(data: MonitorData) {
 
   console.log("\n" + "-".repeat(72))
 
-  // ---- Desqualificados (parados) ----
-  console.log(`\n  DESQUALIFICADOS  (sem ação automática · ${disqualified.length})`)
+  // ---- Parados ----
+  console.log(`\n  PARADOS  (sem ação automática · ${disqualified.length})`)
   if (disqualified.length === 0) {
-    console.log("\n  Nenhum lead desqualificado.")
+    console.log("\n  Nenhum lead parado.")
   } else {
     for (const row of disqualified) {
       console.log(`\n  ✖ ${row.leadName}  → ${row.categoryName}`)

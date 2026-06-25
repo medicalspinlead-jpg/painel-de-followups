@@ -5,7 +5,7 @@ import { requireApiKey } from "@/lib/api-auth"
 
 // Status aceitos pela API. Valores legados continuam sendo aceitos como
 // entrada para compatibilidade, mas o padrão e o recomendado é "ativo".
-const VALID_STAGES = ["desqualificado", "ativo", "aguardando", "dia1", "dia2", "dia3", "aguarda_7_dias"]
+const VALID_STAGES = ["parado", "ativo", "aguardando", "desqualificado", "dia1", "dia2", "dia3", "aguarda_7_dias"]
 
 // GET /api/leads?stage=dia1&categoryId=xxx - lista leads com filtros opcionais
 export async function GET(request: NextRequest) {
