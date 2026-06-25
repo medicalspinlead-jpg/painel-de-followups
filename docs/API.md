@@ -187,6 +187,31 @@ Verifica quais follow-ups correspondem à data/horário atuais e envia os evento
 ```
 > O `timestamp` é o instante ISO em UTC; o campo `message.time` é o horário configurado no fuso de Brasília.
 
+### Evento ao ENTRAR na espera (conclusão da sequência)
+Disparado quando a última mensagem do último dia da categoria é entregue e o lead passa de `ativo` para `aguardando`.
+```json
+{
+  "event": "lead.cycle_completed",
+  "timestamp": "2026-06-08T11:00:00.000Z",
+  "lead": { "id": "...", "name": "...", "email": "...", "phone": "...", "stage": "aguardando" },
+  "category": { "id": "...", "name": "..." },
+  "transition": { "from": "ativo", "to": "aguardando" },
+  "waitDays": 7
+}
+```
+
+### Evento ao SAIR da espera (reinício do ciclo)
+Disparado quando o lead cumpre os `waitDays` da categoria e volta de `aguardando` para `ativo`.
+```json
+{
+  "event": "lead.cycle_restarted",
+  "timestamp": "2026-06-08T11:00:00.000Z",
+  "lead": { "id": "...", "name": "...", "email": "...", "phone": "...", "stage": "ativo" },
+  "category": { "id": "...", "name": "..." },
+  "transition": { "from": "aguardando", "to": "ativo" }
+}
+```
+
 ---
 
 ## Variáveis de ambiente

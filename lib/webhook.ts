@@ -22,6 +22,23 @@ export type FollowupScheduledEvent = {
 }
 
 /**
+ * Disparado quando um lead ENTRA na espera ("aguardando"). Ocorre logo após a
+ * última mensagem do último dia da sequência ser entregue: o lead passa de
+ * "ativo" para "aguardando" e começa a contar os dias de espera (waitDays da
+ * categoria) até reiniciar o ciclo.
+ */
+export type CycleCompletedEvent = {
+  event: "lead.cycle_completed"
+  timestamp: string
+  lead: { id: string; pipedriveId: string | null; name: string; email: string; phone: string; stage: string }
+  category: { id: string; name: string }
+  /** Transição de status: de "ativo" para "aguardando". */
+  transition: { from: "ativo"; to: "aguardando" }
+  /** Dias de espera configurados na categoria até reiniciar o ciclo. */
+  waitDays: number
+}
+
+/**
  * Disparado quando um lead SAI da espera ("aguardando"). Após cumprir os dias
  * de espera da sua categoria, o lead reinicia o ciclo voltando para "ativo".
  * Permite que o webhook saiba que o lead deixou a espera e recomeçou a sequência.
@@ -35,7 +52,7 @@ export type CycleRestartedEvent = {
   transition: { from: "aguardando"; to: "ativo" }
 }
 
-export type WebhookEvent = FollowupScheduledEvent | CycleRestartedEvent
+export type WebhookEvent = FollowupScheduledEvent | CycleCompletedEvent | CycleRestartedEvent
 
 /**
  * Envia um único evento ao webhook configurado.

@@ -254,6 +254,26 @@ export async function runDispatch(): Promise<DispatchResult> {
             data: { stage: "aguardando" as never, waitingSince: now },
           })
           base.advanced++
+
+          // Notifica o webhook que o lead concluiu a sequência e entrou na
+          // espera (de "ativo" para "aguardando").
+          const waitDays = lead.category.waitDays ?? DEFAULT_WAIT_DAYS
+          const completedEvent: WebhookEvent = {
+            event: "lead.cycle_completed",
+            timestamp: brazil.iso,
+            lead: {
+              id: lead.id,
+              pipedriveId: lead.pipedriveId,
+              name: lead.name,
+              email: lead.email,
+              phone: lead.phone,
+              stage: "aguardando",
+            },
+            category: { id: lead.category.id, name: lead.category.name },
+            transition: { from: "ativo", to: "aguardando" },
+            waitDays,
+          }
+          await sendWebhookEvent(settings.webhookUrl, settings.webhookSecret, completedEvent)
         }
       }
     }

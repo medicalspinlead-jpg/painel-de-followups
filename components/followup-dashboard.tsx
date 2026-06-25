@@ -1062,12 +1062,8 @@ export function FollowupDashboard() {
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                                     <span>{msg.dayOffset === 0 ? "Imediato (ao criar lead)" : `${msg.dayOffset} dia${msg.dayOffset > 1 ? "s" : ""} apos contato`}</span>
-                                    {msg.dayOffset !== 0 && (
-                                      <>
-                                        <span>-</span>
-                                        <span>{msg.time}</span>
-                                      </>
-                                    )}
+                                    <span>-</span>
+                                    <span>{msg.time}</span>
                                   </div>
                                   <p className="text-sm truncate">{msg.message}</p>
                                 </div>
