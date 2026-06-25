@@ -29,11 +29,25 @@ export async function POST(request: NextRequest) {
     if (!body.name || typeof body.name !== "string") {
       return NextResponse.json({ error: "O campo 'name' é obrigatório" }, { status: 400 })
     }
+    // waitDays: dias de espera até reiniciar o ciclo (padrão 7). Inteiro >= 1.
+    let waitDays = 7
+    if (body.waitDays !== undefined) {
+      const parsed = Number(body.waitDays)
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        return NextResponse.json(
+          { error: "O campo 'waitDays' deve ser um inteiro maior ou igual a 1" },
+          { status: 400 },
+        )
+      }
+      waitDays = parsed
+    }
+
     const category = await prisma.category.create({
       data: {
         name: body.name,
         color: body.color ?? "bg-blue-500",
         active: body.active ?? true,
+        waitDays,
       },
     })
     return NextResponse.json({ data: category }, { status: 201 })

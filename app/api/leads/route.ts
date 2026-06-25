@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma"
 import { dispatchImmediateFollowups } from "@/lib/webhook"
 import { requireApiKey } from "@/lib/api-auth"
 
-const VALID_STAGES = ["desqualificado", "dia1", "dia2", "dia3", "aguarda_7_dias"]
+// Status aceitos pela API. Valores legados continuam sendo aceitos como
+// entrada para compatibilidade, mas o padrão e o recomendado é "ativo".
+const VALID_STAGES = ["desqualificado", "ativo", "aguardando", "dia1", "dia2", "dia3", "aguarda_7_dias"]
 
 // GET /api/leads?stage=dia1&categoryId=xxx - lista leads com filtros opcionais
 export async function GET(request: NextRequest) {
@@ -51,7 +53,7 @@ export async function POST(request: NextRequest) {
         phone: body.phone ?? "",
         pipedriveId: body.pipedriveId ? String(body.pipedriveId) : null,
         categoryId: body.categoryId ?? null,
-        stage: body.stage ?? "dia1",
+        stage: body.stage ?? "ativo",
         notes: body.notes ?? "",
       },
     })

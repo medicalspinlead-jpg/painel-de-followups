@@ -9,10 +9,11 @@ import {
   FollowupMessage,
   Settings,
   defaultSettings,
-  getStageColor,
-  getStageLabel,
-  MAX_MESSAGES_PER_CATEGORY,
+  getStatusColor,
+  getStatusLabel,
+  normalizeStatus,
 } from "@/lib/store"
+import { categoryDays, currentDayFor, type ScheduleMessage } from "@/lib/followup-schedule"
 import { apiFetch } from "@/lib/api-client"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -115,10 +116,10 @@ export function FollowupDashboard() {
     phone: "",
     pipedriveId: "",
     categoryId: "",
-    stage: "dia1",
+    stage: "ativo",
     notes: "",
   })
-  const [newCategory, setNewCategory] = useState({ name: "", color: "bg-blue-500" })
+  const [newCategory, setNewCategory] = useState({ name: "", color: "bg-blue-500", waitDays: 7 })
   const [newMessage, setNewMessage] = useState<Partial<FollowupMessage>>({
     dayOffset: 1,
     time: "09:00",
@@ -185,12 +186,12 @@ export function FollowupDashboard() {
           phone: newLead.phone || "",
           pipedriveId: newLead.pipedriveId || null,
           categoryId: newLead.categoryId,
-          stage: newLead.stage || "dia1",
+          stage: newLead.stage || "ativo",
           notes: newLead.notes || "",
         }),
       }).then((r) => parseResponse<Lead>(r))
       setLeads((prev) => [lead, ...prev])
-      setNewLead({ name: "", email: "", phone: "", pipedriveId: "", categoryId: "", stage: "dia1", notes: "" })
+      setNewLead({ name: "", email: "", phone: "", pipedriveId: "", categoryId: "", stage: "ativo", notes: "" })
       setIsLeadDialogOpen(false)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Erro ao adicionar lead")
@@ -252,10 +253,15 @@ export function FollowupDashboard() {
       const category = await apiFetch("/api/categories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newCategory.name, color: newCategory.color, active: true }),
+        body: JSON.stringify({
+          name: newCategory.name,
+          color: newCategory.color,
+          active: true,
+          waitDays: newCategory.waitDays,
+        }),
       }).then((r) => parseResponse<Category>(r))
       setCategories((prev) => [...prev, category])
-      setNewCategory({ name: "", color: "bg-blue-500" })
+      setNewCategory({ name: "", color: "bg-blue-500", waitDays: 7 })
       setIsCategoryDialogOpen(false)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Erro ao criar categoria")
@@ -415,7 +421,7 @@ export function FollowupDashboard() {
         name: "Lead de Teste",
         email: "teste@exemplo.com",
         phone: testPhone.trim() || "(11) 99999-9999",
-        stage: "dia1",
+        stage: "ativo",
       },
       category: { id: "test", name: "Categoria de Teste" },
       message: { id: "test", order: 1, dayOffset: 1, time: settings.defaultFollowupTime, content: "Mensagem de teste do webhook" },
@@ -449,6 +455,59 @@ export function FollowupDashboard() {
     return messages
       .filter((m) => m.categoryId === categoryId)
       .sort((a, b) => a.order - b.order)
+  }
+
+  // Converte as mensagens da categoria para o formato esperado pela lógica de
+  // agendamento (lib/followup-schedule).
+  const scheduleMessagesFor = (categoryId: string): ScheduleMessage[] =>
+    getMessagesForCategory(categoryId).map((m) => ({
+      id: m.id,
+      order: m.order,
+      dayOffset: m.dayOffset,
+      time: m.time,
+      content: m.message,
+      active: m.active,
+    }))
+
+  // Calcula o rótulo da "etapa" de um lead. Para leads ativos a etapa é dinâmica
+  // e depende da configuração de dias da própria categoria; para os demais usa
+  // o status (Aguardando / Desqualificado).
+  const getLeadStageDisplay = (lead: Lead): string => {
+    const status = normalizeStatus(lead.stage)
+    if (status !== "ativo") return getStatusLabel(lead.stage)
+
+    const msgs = scheduleMessagesFor(lead.categoryId)
+    const days = categoryDays(msgs)
+    if (days.length === 0) return "Ativo"
+
+    const lastDay = days[days.length - 1]
+    const anchor = new Date(lead.cycleStartedAt ?? lead.createdAt)
+    const current = currentDayFor({
+      now: new Date(),
+      cycleStartedAt: anchor,
+      messages: msgs,
+      sendWeekends: settings.sendWeekends,
+    })
+    const day = Math.max(current, 1)
+    return `Dia ${day} de ${lastDay}`
+  }
+
+  // Atualiza os dias de espera de uma categoria (waitDays).
+  const updateCategoryWaitDays = async (id: string, waitDays: number) => {
+    const current = categories.find((c) => c.id === id)
+    if (!current || waitDays < 1) return
+    setActionError(null)
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, waitDays } : c)))
+    try {
+      await apiFetch(`/api/categories/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ waitDays }),
+      }).then((r) => parseResponse<Category>(r))
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Erro ao atualizar dias de espera")
+      setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, waitDays: current.waitDays } : c)))
+    }
   }
 
   const colorOptions = [
@@ -651,21 +710,24 @@ export function FollowupDashboard() {
                           </div>
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <Select
-                            value={lead.stage}
-                            onValueChange={(value) => updateLeadStage(lead.id, value as LeadStage)}
-                          >
-                            <SelectTrigger className={`w-36 h-7 text-xs border ${getStageColor(lead.stage)}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="bg-popover border-border">
-                              <SelectItem value="desqualificado">Desqualificado</SelectItem>
-                              <SelectItem value="dia1">Dia 1</SelectItem>
-                              <SelectItem value="dia2">Dia 2</SelectItem>
-                              <SelectItem value="dia3">Dia 3</SelectItem>
-                              <SelectItem value="aguarda_7_dias">Aguarda 7 dias</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="outline" className={`w-fit text-xs ${getStatusColor(lead.stage)}`}>
+                              {getLeadStageDisplay(lead)}
+                            </Badge>
+                            <Select
+                              value={normalizeStatus(lead.stage)}
+                              onValueChange={(value) => updateLeadStage(lead.id, value as LeadStage)}
+                            >
+                              <SelectTrigger className="w-36 h-7 text-xs border border-border bg-input">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-popover border-border">
+                                <SelectItem value="ativo">Ativo</SelectItem>
+                                <SelectItem value="aguardando">Aguardando</SelectItem>
+                                <SelectItem value="desqualificado">Desqualificado</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground max-w-48 truncate">
                           {lead.notes}
@@ -738,8 +800,8 @@ export function FollowupDashboard() {
                       </div>
                       <div className="flex items-center justify-between py-2 border-b border-border">
                         <span className="text-sm text-muted-foreground">Etapa</span>
-                        <Badge className={getStageColor(selectedLead.stage)}>
-                          {getStageLabel(selectedLead.stage)}
+                        <Badge className={getStatusColor(selectedLead.stage)}>
+                          {getLeadStageDisplay(selectedLead)}
                         </Badge>
                       </div>
                       <div className="flex items-center justify-between py-2 border-b border-border">
@@ -898,6 +960,26 @@ export function FollowupDashboard() {
                           ))}
                         </div>
                       </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="categoryWaitDays">Dias de espera ate reiniciar o ciclo</Label>
+                        <Input
+                          id="categoryWaitDays"
+                          type="number"
+                          min="1"
+                          value={newCategory.waitDays}
+                          onChange={(e) => {
+                            const parsed = parseInt(e.target.value, 10)
+                            setNewCategory({
+                              ...newCategory,
+                              waitDays: Number.isNaN(parsed) ? 1 : Math.max(1, parsed),
+                            })
+                          }}
+                          className="bg-input border-border"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Apos concluir a sequencia, o lead aguarda esses dias antes de reiniciar. Padrao: 7.
+                        </p>
+                      </div>
                     </div>
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setIsCategoryDialogOpen(false)}>
@@ -914,7 +996,8 @@ export function FollowupDashboard() {
                 {categories.map((category) => {
                   const categoryMessages = getMessagesForCategory(category.id)
                   const messageCount = categoryMessages.length
-                  const canAddMore = messageCount < MAX_MESSAGES_PER_CATEGORY
+                  // Sem limite de mensagens: o usuário define quantos dias/mensagens quiser.
+                  const dayCount = categoryDays(scheduleMessagesFor(category.id)).length
 
                   return (
                     <Card key={category.id} className={`bg-card border-border ${!category.active && "opacity-50"}`}>
@@ -924,8 +1007,28 @@ export function FollowupDashboard() {
                             <div className={`h-4 w-4 rounded-full shrink-0 ${category.color}`} />
                             <CardTitle className="text-base truncate">{category.name}</CardTitle>
                             <Badge variant="secondary" className="text-xs shrink-0">
-                              {messageCount}/{MAX_MESSAGES_PER_CATEGORY} mensagens
+                              {messageCount} {messageCount === 1 ? "mensagem" : "mensagens"}
                             </Badge>
+                            <Badge variant="outline" className="text-xs shrink-0">
+                              {dayCount} {dayCount === 1 ? "dia" : "dias"}
+                            </Badge>
+                            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                              <Label htmlFor={`wait-${category.id}`} className="text-xs text-muted-foreground">
+                                Espera:
+                              </Label>
+                              <Input
+                                id={`wait-${category.id}`}
+                                type="number"
+                                min="1"
+                                value={category.waitDays}
+                                onChange={(e) => {
+                                  const parsed = parseInt(e.target.value, 10)
+                                  updateCategoryWaitDays(category.id, Number.isNaN(parsed) ? 1 : Math.max(1, parsed))
+                                }}
+                                className="h-7 w-16 bg-input border-border text-xs"
+                              />
+                              <span className="text-xs text-muted-foreground">dias</span>
+                            </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <Switch
@@ -959,8 +1062,12 @@ export function FollowupDashboard() {
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                                     <span>{msg.dayOffset === 0 ? "Imediato (ao criar lead)" : `${msg.dayOffset} dia${msg.dayOffset > 1 ? "s" : ""} apos contato`}</span>
-                                    <span>-</span>
-                                    <span>{msg.time}</span>
+                                    {msg.dayOffset !== 0 && (
+                                      <>
+                                        <span>-</span>
+                                        <span>{msg.time}</span>
+                                      </>
+                                    )}
                                   </div>
                                   <p className="text-sm truncate">{msg.message}</p>
                                 </div>
@@ -986,7 +1093,7 @@ export function FollowupDashboard() {
                           <p className="text-sm text-muted-foreground mb-4">Nenhuma mensagem configurada</p>
                         )}
                         
-                        {canAddMore && category.active && (
+                        {category.active && (
                           <Button
                             variant="outline"
                             size="sm"

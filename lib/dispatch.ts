@@ -1,16 +1,22 @@
 import { prisma } from "@/lib/prisma"
 import type { LeadStage } from "@prisma/client"
 import { getBrazilTimeParts } from "@/lib/timezone"
-import { dueFollowups, DAILY_STAGES, nextStageAfter, shouldRestartCycle } from "@/lib/followup-schedule"
+import { dueFollowups, lastDayOf, targetDateFor, shouldRestartCycle, DEFAULT_WAIT_DAYS } from "@/lib/followup-schedule"
 import { sendWebhookEvent, type WebhookEvent } from "@/lib/webhook"
 import { renderTemplate } from "@/lib/template"
 
 const SETTINGS_ID = "default"
 
+// Status que recebem a sequência de follow-up. Inclui valores legados
+// (dia1/dia2/dia3) para bancos que ainda não passaram pela migração.
+const ACTIVE_DB_STAGES = ["ativo", "dia1", "dia2", "dia3"] as const
+// Status de espera (inclui o legado aguarda_7_dias).
+const WAITING_DB_STAGES = ["aguardando", "aguarda_7_dias"] as const
+
 /**
- * Garante (de forma idempotente) que a tabela followup_logs exista no banco.
- * Em self-host o Dockerfile não roda migrações, então criamos a tabela no boot.
- * Seguro chamar várias vezes — usa IF NOT EXISTS.
+ * Garante (de forma idempotente) que o schema esteja atualizado no banco.
+ * Em self-host o Dockerfile não roda migrações, então aplicamos as mudanças no
+ * boot. Seguro chamar várias vezes — tudo usa IF NOT EXISTS / WHERE.
  */
 let ensured = false
 export async function ensureFollowupLogTable(): Promise<void> {
@@ -36,8 +42,6 @@ export async function ensureFollowupLogTable(): Promise<void> {
   `)
 
   // Colunas do ciclo de follow-up no lead (self-host não roda migrações).
-  // cycleStartedAt: âncora da sequência diária; backfill = createdAt.
-  // waitingSince: início da espera de 7 dias úteis (null fora de aguarda_7_dias).
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "cycleStartedAt" TIMESTAMP(3);
   `)
@@ -48,6 +52,27 @@ export async function ensureFollowupLogTable(): Promise<void> {
     UPDATE "leads" SET "cycleStartedAt" = "createdAt" WHERE "cycleStartedAt" IS NULL;
   `)
 
+  // Espera por categoria (padrão 7). Cada categoria define o seu valor.
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "categories" ADD COLUMN IF NOT EXISTS "waitDays" INTEGER NOT NULL DEFAULT ${DEFAULT_WAIT_DAYS};
+  `)
+
+  // Novos status do lead. Em PostgreSQL, ADD VALUE é idempotente com IF NOT EXISTS.
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TYPE "LeadStage" ADD VALUE IF NOT EXISTS 'ativo';`)
+    await prisma.$executeRawUnsafe(`ALTER TYPE "LeadStage" ADD VALUE IF NOT EXISTS 'aguardando';`)
+  } catch {
+    // Tipo pode não existir como enum em todos os ambientes; ignorável.
+  }
+
+  // Migra leads legados para o novo modelo de status.
+  await prisma.$executeRawUnsafe(`
+    UPDATE "leads" SET "stage" = 'ativo' WHERE "stage" IN ('dia1', 'dia2', 'dia3');
+  `)
+  await prisma.$executeRawUnsafe(`
+    UPDATE "leads" SET "stage" = 'aguardando' WHERE "stage" = 'aguarda_7_dias';
+  `)
+
   ensured = true
 }
 
@@ -56,7 +81,7 @@ export type DispatchResult = {
   matched: number
   dispatched: number
   advanced: number
-  /** Leads que reiniciaram o ciclo (aguarda_7_dias → dia1). */
+  /** Leads que reiniciaram o ciclo (aguardando → ativo). */
   restarted: number
   skipped: number
   failures: string[]
@@ -67,13 +92,11 @@ export type DispatchResult = {
 }
 
 /**
- * Núcleo do envio de follow-ups agendados (etapas diárias dia1/dia2/dia3).
+ * Núcleo do envio de follow-ups agendados.
  *
- * Usado tanto pela rota HTTP (cron externo / acionamento manual) quanto pelo
- * agendador interno do servidor. É IDEMPOTENTE: cada (lead, mensagem, data-alvo)
- * só é enviado uma vez, registrado em FollowupLog. Combinado com o modelo de
- * "janela" do dueFollowups, isso garante que mensagens não sejam perdidas mesmo
- * que o agendador atrase, nem duplicadas mesmo que ele rode várias vezes.
+ * Sem etapas fixas: cada categoria define os seus dias (via dayOffset das
+ * mensagens) e a sua espera (waitDays). É IDEMPOTENTE — cada (lead, mensagem,
+ * data-alvo) só é enviado uma vez (FollowupLog).
  */
 export async function runDispatch(): Promise<DispatchResult> {
   const now = new Date()
@@ -103,7 +126,7 @@ export async function runDispatch(): Promise<DispatchResult> {
   }
 
   const leads = await prisma.lead.findMany({
-    where: { stage: { in: DAILY_STAGES as LeadStage[] }, categoryId: { not: null } },
+    where: { stage: { in: ACTIVE_DB_STAGES as unknown as LeadStage[] }, categoryId: { not: null } },
     include: { category: { include: { messages: { where: { active: true } } } } },
   })
   base.checkedLeads = leads.length
@@ -111,50 +134,38 @@ export async function runDispatch(): Promise<DispatchResult> {
   for (const lead of leads) {
     if (!lead.category || !lead.category.active) continue
 
+    const scheduleMessages = lead.category.messages.map((m) => ({
+      id: m.id,
+      order: m.order,
+      dayOffset: m.dayOffset,
+      time: m.time,
+      content: m.message,
+      active: m.active,
+    }))
+
+    const cycleStartedAt = lead.cycleStartedAt ?? lead.createdAt
+
     const due = dueFollowups({
       now,
-      // Âncora do ciclo atual (no 1º ciclo == createdAt; após reinício, o
-      // instante do reinício). Garante que dia1/2/3 recomecem a cada ciclo.
-      createdAt: lead.cycleStartedAt ?? lead.createdAt,
-      stage: lead.stage,
+      cycleStartedAt,
       sendWeekends: settings.sendWeekends,
-      messages: lead.category.messages.map((m) => ({
-        id: m.id,
-        order: m.order,
-        dayOffset: m.dayOffset,
-        time: m.time,
-        content: m.message,
-        active: m.active,
-      })),
+      messages: scheduleMessages,
     })
 
-    // Envia na ordem do horário (mais cedo primeiro): o horário mais próximo
-    // tem prioridade do dia.
-    const ordered = [...due.messages].sort((a, b) => a.time.localeCompare(b.time))
+    // Envia na ordem do horário (mais cedo primeiro).
+    const ordered = [...due].sort((a, b) => a.message.time.localeCompare(b.message.time))
 
-    // TODAS as mensagens ativas da etapa (dia atual), ordenadas por horário.
-    // Define a posição do follow-up: cada etapa pode ter até 2 (1º e 2º). Usamos
-    // o conjunto completo da etapa — não só as devidas agora — para que o índice
-    // do 2º follow-up continue sendo 2 mesmo se o 1º já foi enviado antes.
-    const stageOrdered = lead.category.messages
-      .filter((m) => m.dayOffset === due.targetDay)
-      .sort((a, b) => a.time.localeCompare(b.time))
-    const followupTotal = stageOrdered.length
-
-    for (const message of ordered) {
+    for (const item of ordered) {
+      const message = item.message
       base.matched++
 
-      // Posição (1 ou 2) deste follow-up dentro da etapa, por ordem de horário.
-      const followupIndex = stageOrdered.findIndex((m) => m.id === message.id) + 1
-
-      // Idempotência. No fluxo normal, checamos antes para não gerar log de
-      // erro do Prisma quando a mensagem já foi enviada hoje.
+      // Idempotência: pula se a mensagem já foi enviada hoje.
       const existing = await prisma.followupLog.findUnique({
         where: {
           leadId_messageId_targetDate: {
             leadId: lead.id,
             messageId: message.id,
-            targetDate: due.targetDate,
+            targetDate: item.targetDate,
           },
         },
       })
@@ -163,14 +174,13 @@ export async function runDispatch(): Promise<DispatchResult> {
         continue
       }
 
-      // Reserva o envio. O try/catch protege contra corrida (duas execuções
-      // simultâneas do agendador): a 2ª viola a unique e simplesmente pula.
+      // Reserva o envio. Protege contra corrida entre execuções simultâneas.
       try {
         await prisma.followupLog.create({
           data: {
             leadId: lead.id,
             messageId: message.id,
-            targetDate: due.targetDate,
+            targetDate: item.targetDate,
             scheduled: message.time,
             status: "pending",
           },
@@ -189,7 +199,7 @@ export async function runDispatch(): Promise<DispatchResult> {
           name: lead.name,
           email: lead.email,
           phone: lead.phone,
-          stage: lead.stage,
+          stage: "ativo",
         },
         category: { id: lead.category.id, name: lead.category.name },
         message: {
@@ -200,9 +210,9 @@ export async function runDispatch(): Promise<DispatchResult> {
           content: renderTemplate(message.content, lead),
         },
         followup: {
-          index: followupIndex,
-          total: followupTotal,
-          isLast: followupIndex === followupTotal,
+          index: item.index,
+          total: item.total,
+          isLast: item.index === item.total,
         },
       }
 
@@ -211,48 +221,37 @@ export async function runDispatch(): Promise<DispatchResult> {
       if (ok) {
         base.dispatched++
         await prisma.followupLog.updateMany({
-          where: { leadId: lead.id, messageId: message.id, targetDate: due.targetDate },
+          where: { leadId: lead.id, messageId: message.id, targetDate: item.targetDate },
           data: { status: "delivered" },
         })
       } else {
         base.failures.push(`${lead.id}/${message.id}: falha no webhook`)
-        // Remove o log para permitir nova tentativa na próxima execução.
         await prisma.followupLog.deleteMany({
-          where: { leadId: lead.id, messageId: message.id, targetDate: due.targetDate },
+          where: { leadId: lead.id, messageId: message.id, targetDate: item.targetDate },
         })
       }
     }
 
-    // Avanço de etapa: só altera o status ao enviar o ÚLTIMO envio do dia (a
-    // mensagem de horário mais tarde da etapa). Com 2 mensagens/dia, avança só
-    // depois da 2ª; com 1 mensagem, ao enviar essa única já avança para o
-    // próximo dia (dia1 → dia2 → dia3 → aguarda_7_dias).
-    const stageMessages = lead.category.messages
-      .filter((m) => m.dayOffset === due.targetDay)
-      .sort((a, b) => a.time.localeCompare(b.time))
-
-    if (due.targetDate && stageMessages.length > 0) {
-      const lastMessage = stageMessages[stageMessages.length - 1]
-      const lastDelivered = await prisma.followupLog.findFirst({
-        where: {
-          leadId: lead.id,
-          messageId: lastMessage.id,
-          targetDate: due.targetDate,
-          status: "delivered",
-        },
-      })
-
-      if (lastDelivered) {
-        const next = nextStageAfter(lead.stage)
-        if (next) {
+    // Conclusão da sequência: quando TODAS as mensagens do ÚLTIMO dia da
+    // categoria já foram entregues, o lead entra em "aguardando" e marca o
+    // início da espera (waitDays da categoria) até reiniciar o ciclo.
+    const lastDay = lastDayOf(scheduleMessages)
+    if (lastDay > 0) {
+      const lastDayDate = targetDateFor(cycleStartedAt, lastDay, settings.sendWeekends)
+      if (brazil.date >= lastDayDate) {
+        const lastDayMessages = scheduleMessages.filter((m) => m.dayOffset === lastDay)
+        const deliveredCount = await prisma.followupLog.count({
+          where: {
+            leadId: lead.id,
+            targetDate: lastDayDate,
+            status: "delivered",
+            messageId: { in: lastDayMessages.map((m) => m.id) },
+          },
+        })
+        if (deliveredCount >= lastDayMessages.length) {
           await prisma.lead.update({
             where: { id: lead.id },
-            data: {
-              stage: next as never,
-              // Ao entrar em "aguarda_7_dias", marca o início da espera para
-              // contar os 7 dias úteis até o reinício do ciclo.
-              ...(next === "aguarda_7_dias" ? { waitingSince: now } : {}),
-            },
+            data: { stage: "aguardando" as never, waitingSince: now },
           })
           base.advanced++
         }
@@ -260,33 +259,29 @@ export async function runDispatch(): Promise<DispatchResult> {
     }
   }
 
-  // Reinício automático do ciclo: leads em "aguarda_7_dias" que já cumpriram os
-  // 7 dias úteis de espera voltam para "dia1", reiniciando a sequência diária.
-  // A âncora (cycleStartedAt) passa a ser o instante do reinício, então a
-  // primeira mensagem (dia1) vai para o próximo dia útil — repetindo o fluxo
-  // indefinidamente.
+  // Reinício automático do ciclo: leads em espera que já cumpriram os dias de
+  // espera da SUA categoria voltam para "ativo", reiniciando a sequência. A
+  // âncora (cycleStartedAt) passa a ser o instante do reinício.
   const waitingLeads = await prisma.lead.findMany({
-    where: { stage: "aguarda_7_dias" as LeadStage, categoryId: { not: null } },
+    where: { stage: { in: WAITING_DB_STAGES as unknown as LeadStage[] }, categoryId: { not: null } },
     include: { category: true },
   })
 
   for (const lead of waitingLeads) {
-    // Fallback para leads que entraram na espera antes desta coluna existir.
     const waitingSince = lead.waitingSince ?? lead.updatedAt
-    if (!shouldRestartCycle({ now, waitingSince })) continue
+    const waitDays = lead.category?.waitDays ?? DEFAULT_WAIT_DAYS
+    if (!shouldRestartCycle({ now, waitingSince, waitDays, sendWeekends: settings.sendWeekends })) continue
 
     await prisma.lead.update({
       where: { id: lead.id },
       data: {
-        stage: "dia1" as never,
+        stage: "ativo" as never,
         cycleStartedAt: now,
         waitingSince: null,
       },
     })
     base.restarted++
 
-    // Notifica o webhook de que o lead saiu de "aguarda_7_dias" e reiniciou o
-    // ciclo voltando para "dia1".
     if (lead.category) {
       const restartEvent: WebhookEvent = {
         event: "lead.cycle_restarted",
@@ -297,10 +292,10 @@ export async function runDispatch(): Promise<DispatchResult> {
           name: lead.name,
           email: lead.email,
           phone: lead.phone,
-          stage: "dia1",
+          stage: "ativo",
         },
         category: { id: lead.category.id, name: lead.category.name },
-        transition: { from: "aguarda_7_dias", to: "dia1" },
+        transition: { from: "aguardando", to: "ativo" },
       }
       await sendWebhookEvent(settings.webhookUrl, settings.webhookSecret, restartEvent)
     }

@@ -248,7 +248,7 @@ export function MonitorView() {
                       <StatusDot color={due ? "bg-chart-1 animate-pulse" : "bg-chart-2"} />
                       <span className="font-medium text-foreground">{row.leadName}</span>
                       <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                        {STAGE_LABEL[row.stage] ?? row.stage}
+                        {`Dia ${row.targetDay}`}
                       </span>
                       <span className="text-xs text-muted-foreground">→ {row.categoryName}</span>
                     </div>
@@ -291,7 +291,7 @@ export function MonitorView() {
       {/* Aguardando 7 dias */}
       <section className="rounded-lg border border-border bg-card p-4">
         <h2 className="mb-3 text-sm font-semibold text-card-foreground">
-          Aguardando 7 dias <span className="text-muted-foreground">({data.waiting.length})</span>
+          Aguardando reinício <span className="text-muted-foreground">({data.waiting.length})</span>
         </h2>
         {data.waiting.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nenhum lead nesta etapa.</p>

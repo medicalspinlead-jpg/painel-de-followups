@@ -1,15 +1,17 @@
 import { prisma } from "@/lib/prisma"
 import {
   nextDispatchForLead,
-  targetDateFor,
-  STAGE_TO_DAY,
   restartDateAfterWait,
+  currentDayFor,
+  categoryDays,
+  normalizeStage,
+  DEFAULT_WAIT_DAYS,
   type ScheduleMessage,
 } from "@/lib/followup-schedule"
 import { getBrazilTimeParts } from "@/lib/timezone"
 import { STAGE_ORDER, STAGE_LABEL } from "@/lib/monitor-stages"
 
-// Reexporta as constantes de etapas (definidas em módulo isolado, seguro para
+// Reexporta as constantes de status (definidas em módulo isolado, seguro para
 // o cliente) para quem já importava de monitor-data (ex.: scripts/monitor.ts).
 export { STAGE_ORDER, STAGE_LABEL }
 
@@ -24,6 +26,8 @@ export type Row = {
   message: ScheduleMessage
   targetDay: number
   targetDate: string
+  /** Dia atual do lead na sequência da categoria (0 antes do 1º envio). */
+  currentDay: number
 }
 
 export type WaitingRow = {
@@ -85,17 +89,17 @@ export async function loadMonitorData(): Promise<MonitorData> {
     sendWeekends: settingsRow?.sendWeekends ?? false,
   }
 
-  // Contagem por etapa (todas as etapas, inclusive desqualificado).
+  // Contagem por status (normalizando valores legados para os 3 status atuais).
   const grouped = await prisma.lead.groupBy({ by: ["stage"], _count: { _all: true } })
   const counts: Record<string, number> = {}
   for (const s of STAGE_ORDER) counts[s] = 0
   let totalLeads = 0
   for (const g of grouped) {
-    counts[g.stage] = g._count._all
+    counts[normalizeStage(g.stage)] += g._count._all
     totalLeads += g._count._all
   }
 
-  // Todos os leads, com categoria + mensagens ativas, para detalhar cada etapa.
+  // Todos os leads, com categoria + mensagens ativas, para detalhar cada status.
   const leads = await prisma.lead.findMany({
     include: { category: { include: { messages: { where: { active: true } } } } },
     orderBy: { createdAt: "asc" },
@@ -108,15 +112,16 @@ export async function loadMonitorData(): Promise<MonitorData> {
 
   for (const lead of leads) {
     const categoryName = lead.category?.name ?? "—"
+    const status = normalizeStage(lead.stage)
 
     // Desqualificado: nenhuma ação automática até ser movido manualmente.
-    if (lead.stage === "desqualificado") {
+    if (status === "desqualificado") {
       disqualified.push({
         leadId: lead.id,
         leadName: lead.name,
-        stage: lead.stage,
+        stage: "desqualificado",
         categoryName,
-        reason: "Parado — só volta ao fluxo se mudar de etapa manualmente",
+        reason: "Parado — só volta ao fluxo se mudar de status manualmente",
       })
       continue
     }
@@ -126,7 +131,7 @@ export async function loadMonitorData(): Promise<MonitorData> {
       idle.push({
         leadId: lead.id,
         leadName: lead.name,
-        stage: lead.stage,
+        stage: status,
         categoryName: "—",
         reason: "Sem categoria atribuída",
       })
@@ -136,56 +141,57 @@ export async function loadMonitorData(): Promise<MonitorData> {
       idle.push({
         leadId: lead.id,
         leadName: lead.name,
-        stage: lead.stage,
+        stage: status,
         categoryName,
         reason: "Categoria inativa",
       })
       continue
     }
 
-    // Aguardando 7 dias úteis para reiniciar o ciclo.
-    if (lead.stage === "aguarda_7_dias") {
+    // Aguardando o reinício do ciclo (dias de espera da categoria).
+    if (status === "aguardando") {
       const since = lead.waitingSince ?? lead.updatedAt
+      const waitDays = lead.category.waitDays ?? DEFAULT_WAIT_DAYS
       waiting.push({
         leadId: lead.id,
         leadName: lead.name,
         categoryName,
         since,
-        restartDate: restartDateAfterWait(since),
+        restartDate: restartDateAfterWait(since, waitDays, settings.sendWeekends),
       })
       continue
     }
 
-    // Etapas diárias (dia1/2/3): calcula o próximo envio.
-    const anchor = lead.cycleStartedAt ?? lead.createdAt
-    const next = nextDispatchForLead({
-      now,
-      createdAt: anchor,
-      stage: lead.stage,
-      sendWeekends: settings.sendWeekends,
-      messages: lead.category.messages.map((m: (typeof lead.category.messages)[number]) => ({
+    // Lead ativo: calcula o próximo envio agendado.
+    const cycleStartedAt = lead.cycleStartedAt ?? lead.createdAt
+    const messages: ScheduleMessage[] = lead.category.messages.map(
+      (m: (typeof lead.category.messages)[number]) => ({
         id: m.id,
         order: m.order,
         dayOffset: m.dayOffset,
         time: m.time,
         content: m.message,
         active: m.active,
-      })),
+      }),
+    )
+
+    const next = nextDispatchForLead({
+      now,
+      cycleStartedAt,
+      sendWeekends: settings.sendWeekends,
+      messages,
     })
 
     if (!next) {
-      const hasStageMsg = lead.category.messages.some(
-        (m: (typeof lead.category.messages)[number]) =>
-          m.active && m.dayOffset === STAGE_TO_DAY[lead.stage],
-      )
+      const hasDailyMessages = categoryDays(messages).length > 0
       idle.push({
         leadId: lead.id,
         leadName: lead.name,
-        stage: lead.stage,
+        stage: status,
         categoryName,
-        reason: hasStageMsg
-          ? "Horário de hoje já passou (aguardando próxima execução do cron)"
-          : `Sem mensagem ativa para ${STAGE_LABEL[lead.stage] ?? lead.stage}`,
+        reason: hasDailyMessages
+          ? "Sem próximo envio (sequência do dia concluída ou já enviada)"
+          : "Categoria sem mensagens diárias configuradas",
       })
       continue
     }
@@ -193,14 +199,15 @@ export async function loadMonitorData(): Promise<MonitorData> {
     rows.push({
       leadId: lead.id,
       leadName: lead.name,
-      stage: lead.stage,
+      stage: status,
       categoryName,
       createdAt: lead.createdAt,
-      cycleStartedAt: anchor,
+      cycleStartedAt,
       at: next.at,
       message: next.message,
       targetDay: next.targetDay,
-      targetDate: targetDateFor(anchor, next.targetDay, settings.sendWeekends),
+      targetDate: next.targetDate,
+      currentDay: currentDayFor({ now, cycleStartedAt, messages, sendWeekends: settings.sendWeekends }),
     })
   }
 

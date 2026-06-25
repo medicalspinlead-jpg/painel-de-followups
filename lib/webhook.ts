@@ -11,28 +11,28 @@ export type FollowupScheduledEvent = {
   category: { id: string; name: string }
   message: { id: string; order: number; dayOffset: number; time: string; content: string }
   /**
-   * Posição do follow-up DENTRO da etapa (dia1/dia2/dia3). Cada etapa pode ter
-   * até 2 follow-ups; este objeto informa qual deles está sendo enviado.
-   * - index: 1 = primeiro follow-up da etapa, 2 = segundo (por ordem de horário).
-   * - total: quantos follow-ups ativos a etapa possui (1 ou 2).
-   * - isLast: true se for o último follow-up da etapa (quando só existe 1, o
-   *   primeiro já é o último).
+   * Posição do follow-up DENTRO do dia (dayOffset). Um mesmo dia pode ter
+   * várias mensagens; este objeto informa qual delas está sendo enviada.
+   * - index: 1 = primeira mensagem do dia, 2 = segunda... (por ordem de horário).
+   * - total: quantas mensagens ativas aquele dia possui.
+   * - isLast: true se for a última mensagem do dia (quando só existe 1, a
+   *   primeira já é a última).
    */
   followup: { index: number; total: number; isLast: boolean }
 }
 
 /**
- * Disparado quando um lead SAI da etapa "aguarda_7_dias". Após cumprir os 7
- * dias úteis de espera, o lead reinicia o ciclo voltando para "dia1". Permite
- * que o webhook saiba que o lead deixou a espera e recomeçou a sequência.
+ * Disparado quando um lead SAI da espera ("aguardando"). Após cumprir os dias
+ * de espera da sua categoria, o lead reinicia o ciclo voltando para "ativo".
+ * Permite que o webhook saiba que o lead deixou a espera e recomeçou a sequência.
  */
 export type CycleRestartedEvent = {
   event: "lead.cycle_restarted"
   timestamp: string
   lead: { id: string; pipedriveId: string | null; name: string; email: string; phone: string; stage: string }
   category: { id: string; name: string }
-  /** Transição de etapa: de onde o lead saiu e para onde voltou. */
-  transition: { from: "aguarda_7_dias"; to: "dia1" }
+  /** Transição de status: de onde o lead saiu e para onde voltou. */
+  transition: { from: "aguardando"; to: "ativo" }
 }
 
 export type WebhookEvent = FollowupScheduledEvent | CycleRestartedEvent

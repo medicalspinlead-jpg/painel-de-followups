@@ -8,10 +8,16 @@ datasource db {
 
 enum LeadStage {
   desqualificado
+  // Valores legados (mantidos para compatibilidade com bancos existentes;
+  // migrados para "ativo"/"aguardando" pela migração idempotente do boot).
   dia1
   dia2
   dia3
   aguarda_7_dias
+  // Status atuais: "ativo" = recebendo a sequência da categoria;
+  // "aguardando" = na janela de espera antes de reiniciar o ciclo.
+  ativo
+  aguardando
 }
 
 model Category {
@@ -19,6 +25,10 @@ model Category {
   name      String
   color     String   @default("bg-blue-500")
   active    Boolean  @default(true)
+  // Quantos dias (úteis quando não há envio em fins de semana, senão corridos)
+  // o lead aguarda após concluir a sequência antes de reiniciar o ciclo.
+  // Cada categoria define o seu próprio valor; o padrão é 7.
+  waitDays  Int      @default(7)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -31,8 +41,8 @@ model Category {
 model FollowupMessage {
   id         String   @id @default(cuid())
   categoryId String
-  order      Int // posicao 1-6 dentro da categoria
-  dayOffset  Int // dias apos o contato inicial
+  order      Int // posicao de exibicao dentro da categoria
+  dayOffset  Int // dias apos o contato inicial (0 = imediato). Define os "dias" da categoria.
   time       String // horario no formato HH:mm
   message    String
   active     Boolean  @default(true)
@@ -53,7 +63,7 @@ model Lead {
   // ID opcional do lead correspondente no Pipedrive
   pipedriveId String?
   categoryId String?
-  stage      LeadStage @default(dia1)
+  stage      LeadStage @default(ativo)
   notes      String     @default("")
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt

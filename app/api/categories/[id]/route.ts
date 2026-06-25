@@ -31,12 +31,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const { id } = await params
     const body = await request.json()
+
+    // Valida waitDays quando enviado (inteiro >= 1).
+    if (body.waitDays !== undefined) {
+      const parsed = Number(body.waitDays)
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        return NextResponse.json(
+          { error: "O campo 'waitDays' deve ser um inteiro maior ou igual a 1" },
+          { status: 400 },
+        )
+      }
+    }
+
     const category = await prisma.category.update({
       where: { id },
       data: {
         ...(body.name !== undefined && { name: body.name }),
         ...(body.color !== undefined && { color: body.color }),
         ...(body.active !== undefined && { active: body.active }),
+        ...(body.waitDays !== undefined && { waitDays: Number(body.waitDays) }),
       },
     })
     return NextResponse.json({ data: category })

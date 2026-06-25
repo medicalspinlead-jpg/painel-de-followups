@@ -5,19 +5,24 @@ export type Category = {
   name: string
   color: string
   active: boolean
+  // Dias de espera até reiniciar o ciclo (padrão 7). Definido por categoria.
+  waitDays: number
 }
 
 export type FollowupMessage = {
   id: string
   categoryId: string
-  order: number // 1-6
-  dayOffset: number
+  order: number // posicao de exibicao
+  dayOffset: number // define os "dias" da categoria (0 = imediato)
   time: string
   message: string
   active: boolean
 }
 
-export type LeadStage = 'desqualificado' | 'dia1' | 'dia2' | 'dia3' | 'aguarda_7_dias'
+// Status do lead. Valores legados (dia1/dia2/dia3/aguarda_7_dias) ainda podem
+// chegar de bancos antigos e são normalizados para os três status atuais.
+export type LeadStatus = 'ativo' | 'aguardando' | 'desqualificado'
+export type LeadStage = LeadStatus | 'dia1' | 'dia2' | 'dia3' | 'aguarda_7_dias'
 
 export type Lead = {
   id: string
@@ -28,6 +33,8 @@ export type Lead = {
   categoryId: string
   stage: LeadStage
   createdAt: Date
+  // Âncora do ciclo atual (usada para calcular o dia atual do lead).
+  cycleStartedAt?: Date
   notes: string
 }
 
@@ -66,11 +73,11 @@ export type WebhookEvent = {
 
 // Dados iniciais vazios
 export const defaultCategories: Category[] = [
-  { id: '1', name: 'Ressonância Magnética', color: 'bg-blue-500', active: true },
-  { id: '2', name: 'Bobinas de Exames', color: 'bg-green-500', active: true },
-  { id: '3', name: 'Manutenção', color: 'bg-yellow-500', active: true },
-  { id: '4', name: 'Ultrassom', color: 'bg-purple-500', active: true },
-  { id: '5', name: 'Aluguel/Locação', color: 'bg-orange-500', active: true },
+  { id: '1', name: 'Ressonância Magnética', color: 'bg-blue-500', active: true, waitDays: 7 },
+  { id: '2', name: 'Bobinas de Exames', color: 'bg-green-500', active: true, waitDays: 7 },
+  { id: '3', name: 'Manutenção', color: 'bg-yellow-500', active: true, waitDays: 7 },
+  { id: '4', name: 'Ultrassom', color: 'bg-purple-500', active: true, waitDays: 7 },
+  { id: '5', name: 'Aluguel/Locação', color: 'bg-orange-500', active: true, waitDays: 7 },
 ]
 
 export const defaultFollowupMessages: FollowupMessage[] = []
@@ -86,42 +93,38 @@ export const defaultSettings: Settings = {
   webhookEnabled: false,
 }
 
-// Constantes
-export const MAX_MESSAGES_PER_CATEGORY = 6
-
 // Funções auxiliares
 export function generateId(): string {
   return Math.random().toString(36).substring(2, 9)
 }
 
-export function getStageLabel(stage: LeadStage): string {
-  const labels: Record<LeadStage, string> = {
-    desqualificado: 'Desqualificado',
-    dia1: 'Dia 1',
-    dia2: 'Dia 2',
-    dia3: 'Dia 3',
-    aguarda_7_dias: 'Aguarda 7 dias',
-  }
-  return labels[stage]
+/** Normaliza um status legado para um dos três status atuais. */
+export function normalizeStatus(stage: LeadStage): LeadStatus {
+  if (stage === 'desqualificado') return 'desqualificado'
+  if (stage === 'aguarda_7_dias' || stage === 'aguardando') return 'aguardando'
+  return 'ativo'
 }
 
-export function getStageColor(stage: LeadStage): string {
-  const colors: Record<LeadStage, string> = {
-    desqualificado: 'bg-red-500/20 text-red-400 border-red-500/30',
-    dia1: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-    dia2: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
-    dia3: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    aguarda_7_dias: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+export function getStatusLabel(stage: LeadStage): string {
+  const labels: Record<LeadStatus, string> = {
+    ativo: 'Ativo',
+    aguardando: 'Aguardando',
+    desqualificado: 'Desqualificado',
   }
-  return colors[stage]
+  return labels[normalizeStatus(stage)]
+}
+
+export function getStatusColor(stage: LeadStage): string {
+  const colors: Record<LeadStatus, string> = {
+    ativo: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    aguardando: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    desqualificado: 'bg-red-500/20 text-red-400 border-red-500/30',
+  }
+  return colors[normalizeStatus(stage)]
 }
 
 export function getMessageCountByCategory(messages: FollowupMessage[], categoryId: string): number {
   return messages.filter(m => m.categoryId === categoryId).length
-}
-
-export function canAddMessageToCategory(messages: FollowupMessage[], categoryId: string): boolean {
-  return getMessageCountByCategory(messages, categoryId) < MAX_MESSAGES_PER_CATEGORY
 }
 
 export function getNextOrderForCategory(messages: FollowupMessage[], categoryId: string): number {

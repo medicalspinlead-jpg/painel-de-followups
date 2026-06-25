@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiKey } from "@/lib/api-auth"
 
-const MAX_MESSAGES_PER_CATEGORY = 6
-
 // GET /api/messages?categoryId=xxx - lista mensagens (opcionalmente filtradas por categoria)
 export async function GET(request: NextRequest) {
   const unauthorized = requireApiKey(request)
@@ -36,15 +34,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Sem limite de mensagens por categoria: o usuário define quantos dias e
+    // quantas mensagens por dia quiser (o número de mensagens já existentes é
+    // usado apenas para a posição padrão de exibição).
     const count = await prisma.followupMessage.count({
       where: { categoryId: body.categoryId },
     })
-    if (count >= MAX_MESSAGES_PER_CATEGORY) {
-      return NextResponse.json(
-        { error: `Limite de ${MAX_MESSAGES_PER_CATEGORY} mensagens por categoria atingido` },
-        { status: 409 },
-      )
-    }
 
     // Aceita dayOffset = 0 (envio imediato na criação do lead). Valores negativos são inválidos.
     const dayOffset = body.dayOffset ?? 1
